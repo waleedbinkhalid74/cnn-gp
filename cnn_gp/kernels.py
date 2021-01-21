@@ -146,8 +146,10 @@ class ReLU(NNGPKernel):
         xx_yy = kp.xx * kp.yy + self.f32_tiny
 
         # Clamp these so the outputs are not NaN
-        cos_theta = (kp.xy * xx_yy.rsqrt()).clamp(-1, 1)
-        sin_theta = t.sqrt((xx_yy - kp.xy**2).clamp(min=0))
+        # Use small eps to avoid NaN during backpropagation
+        eps = 1e-6
+        cos_theta = (kp.xy * xx_yy.rsqrt()).clamp(-1+eps, 1-eps)
+        sin_theta = t.sqrt((xx_yy - kp.xy**2).clamp(min=eps))
         theta = t.acos(cos_theta)
         xy = (sin_theta + (math.pi - theta)*kp.xy) / (2*math.pi)
 
