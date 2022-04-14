@@ -75,6 +75,12 @@ class Conv2d(NNGPKernel):
         else:
             self.padding = padding
 
+    ###########################REMOVED KERNEL CALCULATION AND ADDED VARIANCES AS TRAINABLE PARAMETERS###########################
+        # weight_var = nn.Parameter(t.Tensor([var_weight])) 
+        # self.register_parameter('var_weight', weight_var)
+        # bias_var = nn.Parameter(t.Tensor([var_bias])) 
+        # self.register_parameter('var_bias', bias_var)
+
         if self.kernel_has_row_of_zeros:
             # We need to pad one side larger than the other. We just make a
             # kernel that is slightly too large and make its last column and
@@ -86,11 +92,24 @@ class Conv2d(NNGPKernel):
             kernel = t.ones(1, 1, self.kernel_size, self.kernel_size)
         self.register_buffer('kernel', kernel
                              * (self.var_weight / self.kernel_size**2))
+        ###########################REMOVED KERNEL CALCULATION AND ADDED VARIANCES AS TRAINABLE PARAMETERS###########################
         self.in_channel_multiplier, self.out_channel_multiplier = (
             in_channel_multiplier, out_channel_multiplier)
 
     def propagate(self, kp):
         kp = ConvKP(kp)
+        ###########################ADDED CALCULATION OF KERNEL FROM TRAINABLE VARIANCES###########################
+        # if self.kernel_has_row_of_zeros:
+        #     # We need to pad one side larger than the other. We just make a
+        #     # kernel that is slightly too large and make its last column and
+        #     # row zeros.
+        #     kernel = t.ones(1, 1, self.kernel_size+1, self.kernel_size+1)
+        #     kernel[:, :, 0, :] = 0.
+        #     kernel[:, :, :, 0] = 0.
+        # else:
+        #     kernel = t.ones(1, 1, self.kernel_size, self.kernel_size)
+        # kernel = kernel * (self.var_weight / self.kernel_size**2)
+        ###########################ADDED CALCULATION OF KERNEL FROM TRAINABLE VARIANCES###########################
         def f(patch):
             return (F.conv2d(patch, self.kernel, stride=self.stride,
                              padding=self.padding, dilation=self.dilation)
