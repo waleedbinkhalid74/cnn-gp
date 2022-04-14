@@ -65,8 +65,9 @@ class Conv2d(NNGPKernel):
         self.kernel_size = kernel_size
         self.stride = stride
         self.dilation = dilation
-        self.var_weight = var_weight
-        self.var_bias = var_bias
+        # Not needed as they will be registered separately as parameters
+        # self.var_weight = var_weight 
+        # self.var_bias = var_bias
         self.kernel_has_row_of_zeros = False
         if padding == "same":
             self.padding = dilation*(kernel_size//2)
@@ -76,29 +77,11 @@ class Conv2d(NNGPKernel):
             self.padding = padding
 
     ###########################REMOVED KERNEL CALCULATION AND ADDED VARIANCES AS TRAINABLE PARAMETERS###########################
-        # weight_var = nn.Parameter(t.Tensor([var_weight])) 
-        # self.register_parameter('var_weight', weight_var)
-        # bias_var = nn.Parameter(t.Tensor([var_bias])) 
-        # self.register_parameter('var_bias', bias_var)
+        weight_var = nn.Parameter(t.Tensor([var_weight])) 
+        self.register_parameter('var_weight', weight_var)
+        bias_var = nn.Parameter(t.Tensor([var_bias])) 
+        self.register_parameter('var_bias', bias_var)
 
-        if self.kernel_has_row_of_zeros:
-            # We need to pad one side larger than the other. We just make a
-            # kernel that is slightly too large and make its last column and
-            # row zeros.
-            kernel = t.ones(1, 1, self.kernel_size+1, self.kernel_size+1)
-            kernel[:, :, 0, :] = 0.
-            kernel[:, :, :, 0] = 0.
-        else:
-            kernel = t.ones(1, 1, self.kernel_size, self.kernel_size)
-        self.register_buffer('kernel', kernel
-                             * (self.var_weight / self.kernel_size**2))
-        ###########################REMOVED KERNEL CALCULATION AND ADDED VARIANCES AS TRAINABLE PARAMETERS###########################
-        self.in_channel_multiplier, self.out_channel_multiplier = (
-            in_channel_multiplier, out_channel_multiplier)
-
-    def propagate(self, kp):
-        kp = ConvKP(kp)
-        ###########################ADDED CALCULATION OF KERNEL FROM TRAINABLE VARIANCES###########################
         # if self.kernel_has_row_of_zeros:
         #     # We need to pad one side larger than the other. We just make a
         #     # kernel that is slightly too large and make its last column and
@@ -108,10 +91,28 @@ class Conv2d(NNGPKernel):
         #     kernel[:, :, :, 0] = 0.
         # else:
         #     kernel = t.ones(1, 1, self.kernel_size, self.kernel_size)
-        # kernel = kernel * (self.var_weight / self.kernel_size**2)
+        # self.register_buffer('kernel', kernel
+        #                      * (self.var_weight / self.kernel_size**2))
+        ###########################REMOVED KERNEL CALCULATION AND ADDED VARIANCES AS TRAINABLE PARAMETERS###########################
+        self.in_channel_multiplier, self.out_channel_multiplier = (
+            in_channel_multiplier, out_channel_multiplier)
+
+    def propagate(self, kp):
+        kp = ConvKP(kp)
+        ###########################ADDED CALCULATION OF KERNEL FROM TRAINABLE VARIANCES###########################
+        if self.kernel_has_row_of_zeros:
+            # We need to pad one side larger than the other. We just make a
+            # kernel that is slightly too large and make its last column and
+            # row zeros.
+            kernel = t.ones(1, 1, self.kernel_size+1, self.kernel_size+1)
+            kernel[:, :, 0, :] = 0.
+            kernel[:, :, :, 0] = 0.
+        else:
+            kernel = t.ones(1, 1, self.kernel_size, self.kernel_size)
+        kernel = kernel * (self.var_weight / self.kernel_size**2)
         ###########################ADDED CALCULATION OF KERNEL FROM TRAINABLE VARIANCES###########################
         def f(patch):
-            return (F.conv2d(patch, self.kernel, stride=self.stride,
+            return (F.conv2d(patch, kernel, stride=self.stride, # CHANGE self.kernel to kernel 
                              padding=self.padding, dilation=self.dilation)
                     + self.var_bias)
         return ConvKP(kp.same, kp.diag, f(kp.xy), f(kp.xx), f(kp.yy))
