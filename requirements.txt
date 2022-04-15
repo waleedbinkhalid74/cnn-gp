@@ -12,3 +12,6 @@ matplotlib>=3.1.0
 
 # For testing
 pytest
+
+# For code quality
+mypy

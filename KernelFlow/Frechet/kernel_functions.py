@@ -7,23 +7,23 @@ Created on Wed Jul 22 14:32:37 2020
 
 
 import numpy as np
-from matrix_operations import norm_matrix
-from matrix_operations import inner_matrix
+from KernelFlow.Frechet.matrix_operations import norm_matrix, inner_matrix
+# from matrix_operations import inner_matrix
 
 
 #%%
 
-""" In this section we define various kernels. Warning, not all of them work 
-at the moment, the most reliable one is the RBF kernel. Note that currently the 
+""" In this section we define various kernels. Warning, not all of them work
+at the moment, the most reliable one is the RBF kernel. Note that currently the
 laplacian kernel does not work"""
-        
+
 
 # Define the RBF Kernel. Takes an array of parameters, returns a value
 def kernel_RBF(matrix_1, matrix_2, parameters):
     matrix = norm_matrix(matrix_1, matrix_2)
     sigma = parameters[0]
     K =  np.exp(-matrix/ (2* sigma**2))
-    
+
     return K
 
 
@@ -70,7 +70,7 @@ def kernel_quad(matrix_1, matrix_2, parameters):
     c = parameters[0]
     matrix = inner_matrix(matrix_1, matrix_2)
     K = (matrix+c) ** 2
-    return K 
+    return K
 
 def kernel_poly(matrix_1, matrix_2, parameters):
     a = parameters[0]
@@ -78,7 +78,7 @@ def kernel_poly(matrix_1, matrix_2, parameters):
     d = parameters[2]
     matrix = inner_matrix(matrix_1, matrix_2)
     K = (a * matrix + b) ** d
-    return K 
+    return K
 
 
 def kernel_gaussian_linear(matrix_1, matrix_2, parameters):
@@ -90,10 +90,10 @@ def kernel_gaussian_linear(matrix_1, matrix_2, parameters):
         K = K + parameters[1, i]**2*np.exp(-matrix / (2* parameters[0, i]**2))
     return K
 
-"""A dictionnary containing the different kernels. If you wish to build a custom 
+"""A dictionnary containing the different kernels. If you wish to build a custom
  kernel, add the function to the dictionnary.
 """
-kernels_dic = {"RBF" : kernel_RBF,"poly": kernel_poly, "laplacian": kernel_laplacian, 
+kernels_dic = {"RBF" : kernel_RBF,"poly": kernel_poly, "laplacian": kernel_laplacian,
                "sigmoid": kernel_sigmoid, "rational quadratic": kernel_rational_quadratic,
                "inverse_multiquad": kernel_inverse_multiquad, "quadratic" : kernel_quad,
                "poly": kernel_poly, "inverse_power_alpha": kernel_inverse_power_alpha,
