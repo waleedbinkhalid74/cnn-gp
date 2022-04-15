@@ -1,11 +1,13 @@
 from re import S
 from cnn_gp import Sequential, Conv2d, ReLU, resnet_block
 import torch
+import torch.nn.functional as F
 import os
 from KernelFlow import KernelFlowsCNNGP
-from KernelFlow import batch_creation
+from KernelFlow import frechet_grad, batch_creation
 import pytest
 import numpy as np
+
 
 def test_kernel_evaluation():
     """Sanity check to ensure if reproducability exists upon changes made to source code.
@@ -84,3 +86,51 @@ def test_pi_matrix():
     print(pi_matrix_compare)
     print(pi_matrix)
     assert torch.equal(pi_matrix, pi_matrix_compare)
+
+def test_rho():
+    """Test if calculation of rho is correct compared to Darcy's implementation
+    """
+    model = Sequential(
+                Conv2d(kernel_size=3, padding=0),
+                ReLU(),
+                )
+    K = KernelFlowsCNNGP(cnn_gp_kernel=model)
+    X = torch.ones((10, 1, 3,3), dtype=torch.float32)
+    for i in range(X.shape[0]):
+        X[i] = X[i] * i
+
+    Y = torch.arange(0,10)
+    Y = F.one_hot(Y, 10)
+    Y = Y.to(torch.float32)
+
+    samples = np.array([2,3,4])
+    batches = np.array([1, 3, 4, 5, 7])
+
+
+    N_f = len(batches)
+    N_c = len(samples)
+    X_batch = X[batches]
+    X_sample = X[samples]
+    Y_batch = Y[batches]
+    Y_sample = Y[samples]
+
+    pi_matrix = KernelFlowsCNNGP.pi_matrix(sample_indices=samples, dimension=(N_c, N_f))
+    rho = K.rho(X_batch=X_batch, Y_batch=Y_batch, Y_sample=Y_sample, pi_matrix=pi_matrix)
+
+    ##### TEST COMPARISION #####
+    pi_comp =  np.array([[0, 0, 1, 0, 0],
+                        [0, 0, 0, 1, 0],
+                        [0, 0, 0, 0, 1]], dtype=float)
+
+    K_xx = model(X_batch, X_batch)
+    K_xx = K_xx.detach().numpy()
+    sample_matrix = np.matmul(pi_comp, np.matmul(K_xx, np.transpose(pi_comp)))
+    inverse_data = np.linalg.inv(K_xx + 0.0001 * np.identity(K_xx.shape[0]))
+    inverse_sample = np.linalg.inv(sample_matrix + 0.0001 * np.identity(sample_matrix.shape[0]))
+    top = np.matmul(Y_sample.T, np.matmul(inverse_sample, Y_sample))
+    bottom = np.matmul(Y_batch.T, np.matmul(inverse_data, Y_batch))
+    rho_comp = 1 - np.trace(top)/np.trace(bottom)
+    # TODO: Check if a relative tolerance of just 0.01 is acceptable.
+    # Pytorch and numpy result in slightly different results due to numerical reasons
+    # Is this acceptable?
+    assert np.isclose(rho.detach().numpy(), rho_comp, 1e-2)

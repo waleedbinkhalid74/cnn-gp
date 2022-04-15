@@ -1,8 +1,11 @@
+from pickletools import optimize
 from typing import Tuple
 from cnn_gp import NNGPKernel
 import torch
 import numpy as np
 from tqdm import tqdm
+
+ACCEPTED_OPTIMIZERS = ['SGC', 'ADAM']
 
 class KernelFlowsCNNGP():
     """Class to model Kernel Flows for convolutional neural network induced gaussian process kernels
@@ -15,10 +18,10 @@ class KernelFlowsCNNGP():
         self.grad_hist = []
         self.para_hist = []
         self._cnn_gp_kernel = cnn_gp_kernel
-        self.LR = lr
+        self.learning_rate = lr
         self.beta = beta
         self.reduction_constant = reduction_constant
-        self.regu_lambda = regularization_lambda
+        self.regularization_lambda = regularization_lambda
 
         self.X: torch.Tensor = None
         self.Y: torch.Tensor = None
@@ -119,37 +122,46 @@ class KernelFlowsCNNGP():
         return pi
 
     def rho(self, X_batch: torch.Tensor, Y_batch: torch.Tensor,
-            X_sample: torch.Tensor, Y_sample: torch.Tensor):
-
+            Y_sample: torch.Tensor, pi_matrix: torch.Tensor):
+        # TODO: Add docstrings
         # rho = 1 - trace(Y_s^T * K(X_s, X_s)^-1 * Y_s) / trace(Y_b^T K(X_b, X_b)^-1 Y_b)
         # Calculation of two kernels is expensive so we use proposition 3.2 Owhadi 2018
         # rho = 1 - trace(Y_s^T * (pi_mat * K(X_b, X_b)^-1 pi_mat^T) * Y_s) / trace(Y_b^T K(X_b, X_b)^-1 Y_b)
-        # Note: Using the notation of Owhadi 2018
 
         # Calculate kernel theta = Kernel(X_Nf, X_Nf)
         theta = self.cnn_gp_kernel(X_batch, X_batch)
 
-        # TODO Calculate pi matrix
+        # Calculate sample_matrix = pi_mat*theta*pi_mat^T
+        sample_matrix = torch.matmul(pi_matrix, torch.matmul(theta, torch.transpose(pi_matrix, 0, 1)))
 
-        # Calculate (pi_mat*theta*pi_mat^T)^-1
-
-        # inverse_data = np.linalg.inv(theta + lambda_term * np.identity(theta.shape[0]))
-        # inverse_sample = np.linalg.inv(sample_matrix + lambda_term * np.identity(sample_matrix.shape[0]))
+        # Add regularization
+        inverse_data = torch.linalg.inv(theta + self.regularization_lambda * torch.eye(theta.shape[0]))
+        inverse_sample = torch.linalg.inv(sample_matrix + self.regularization_lambda * torch.eye(sample_matrix.shape[0]))
 
         # Calculate numerator
-        # top = np.matmul(Y_sample.T, np.matmul(inverse_sample, Y_sample))
+        numerator = torch.matmul(torch.transpose(Y_sample,0,1), torch.matmul(inverse_sample, Y_sample))
         # Calculate denominator
-        # bottom = np.matmul(Y_batch.T, np.matmul(inverse_batch, Y_batch))
+        denominator = torch.matmul(torch.transpose(Y_batch,0,1), torch.matmul(inverse_data, Y_batch))
         # Calculate rho
-        # rho = 1 - np.trace(top)/np.trace(bottom)
+        rho = 1 - torch.trace(numerator)/torch.trace(denominator)
 
-        pass
+        return rho
+
 
     def fit(self, X: torch.Tensor, Y: torch.Tensor, iterations: int, batch_size = False,
             sample_proportion: float = 0.5, optimizer: str = 'SGD', adaptive_size: bool = False):
         # TODO: Incase N_I is the sample size that can be extracted for regression purposes,
         # we do not need to save the entire training set. Only the N_I sampled.
         # This will then have to be updated
+
+        if optimizer not in ACCEPTED_OPTIMIZERS:
+            raise RuntimeError("Optimizer should be a string in " + ACCEPTED_OPTIMIZERS)
+
+        if optimizer == 'SGD':
+            optimizer =  torch.optim.SGD(self.cnn_gp_kernel.parameters(), lr=self.learning_rate)
+        elif optimizer == 'ADAM':
+            optimizer =  torch.optim.Adam(self.cnn_gp_kernel.parameters(), lr=self.learning_rate)
+
         self.X = X
         self.Y = Y
 
@@ -178,17 +190,31 @@ class KernelFlowsCNNGP():
                 sample_size += change - self.reduction_constant
                 adaptive_counter= 0
 
-
             # Create batch N_f and sample N_c = p*N_f
-            sample_indices, batch_indices = KernelFlowsCNNGP.batch_creation(dataset_size= self.X.shape[0], batch_size= batch_size, sample_proportion= sample_proportion)
+            sample_indices, batch_indices = KernelFlowsCNNGP.batch_creation(dataset_size= self.X.shape[0],
+                                                                            batch_size= batch_size,
+                                                                            sample_proportion= sample_proportion)
             X_batch = self.X[batch_indices]
             Y_batch = self.Y[batch_indices]
             X_sample = X_batch[sample_indices]
             Y_sample = Y_batch[sample_indices]
+            N_f = len(batch_indices)
+            N_c = len(sample_indices)
 
-            # TODO: Calculate rho
+            # Calculate pi matrix
+            pi_matrix = KernelFlowsCNNGP.pi_matrix(sample_indices=sample_indices, dimension=(N_c, N_f))
 
-            # TODO: Calculate gradients
-            # TODO: Optimization step
+            # Calculate rho
+            rho = self.rho(X_batch=X_batch, Y_batch=Y_batch, Y_sample=Y_sample, pi_matrix=pi_matrix)
+            # Calculate gradients
+            optimizer.zero_grad()
+            rho.backward()
+
+            # Optimization step
+            optimizer.step()
+
+            # Store value of rho
+            self.rho_values(rho.detach().numpy())
+
     def predict(self):
         pass
