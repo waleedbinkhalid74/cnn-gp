@@ -5,9 +5,11 @@ import numpy as np
 from KernelFlow import KernelFlowsCNNGP
 from KernelFlow import batch_creation
 import torch.nn.functional as F
+from torchvision import datasets, transforms
+
 if __name__ == "__main__":
 
-    X = torch.rand((10,1,28,28))
+    # X = torch.rand((10,1,28,28))
     # indices = np.arange(X.shape[0])
     # sample_indices = np.sort(np.random.choice(indices, 5, replace= False))
 
@@ -76,9 +78,43 @@ if __name__ == "__main__":
     # print(rho, rho_comp, np.abs(rho.detach().numpy() - rho_comp))
     # print(np.isclose(rho.detach().numpy(), rho_comp, 1e-2))
 
+    transform = transforms.Compose([transforms.ToTensor()
+                              ])
 
+    batch_size = 100
+    val_size = 50
 
+    # MNIST
+    trainset = datasets.MNIST('MNIST_dataset/train', download=True, train=True, transform=transform)
+    valset = datasets.MNIST('MNIST_dataset/val', download=True, train=False, transform=transform)
+    trainloader = torch.utils.data.DataLoader(trainset, batch_size=batch_size, shuffle=False)
+    valloader = torch.utils.data.DataLoader(valset, batch_size=batch_size, shuffle=False)
 
+    # Fashion MNIST
+    # trainset = datasets.FashionMNIST('Fashion_MNIST_dataset/train', download=True, train=True, transform=transform)
+    # valset = datasets.FashionMNIST('Fashion_MNIST_dataset/val', download=True, train=False, transform=transform)
+    # trainloader = torch.utils.data.DataLoader(trainset, batch_size=batch_size, shuffle=True)
+    # valloader = torch.utils.data.DataLoader(valset, batch_size=batch_size, shuffle=True)
+
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
+    dataiter = iter(trainloader)
+    X_train, Y_train = dataiter.next()
+    Y_train = F.one_hot(Y_train, 10)
+
+    dataiter_val = iter(valloader)
+    X_test, Y_test = dataiter_val.next()
+
+    model = Sequential(
+                Conv2d(kernel_size=3),
+                ReLU(),
+                Conv2d(kernel_size=3, stride=2),
+                ReLU(),
+                Conv2d(kernel_size=14, padding=0),  # equivalent to a dense layer
+                )
+
+    KF_CNN_GP = KernelFlowsCNNGP(model)
+    KF_CNN_GP.fit(X_train, Y_train, 10, 50, 0.5)
 
 
 

@@ -134,3 +134,8 @@ def test_rho():
     # Pytorch and numpy result in slightly different results due to numerical reasons
     # Is this acceptable?
     assert np.isclose(rho.detach().numpy(), rho_comp, 1e-2)
+
+def test_predict():
+    """Test if the prediction is done correctly
+    """
+    pass

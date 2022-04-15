@@ -5,7 +5,7 @@ import torch
 import numpy as np
 from tqdm import tqdm
 
-ACCEPTED_OPTIMIZERS = ['SGC', 'ADAM']
+ACCEPTED_OPTIMIZERS = ['SGD', 'ADAM']
 
 class KernelFlowsCNNGP():
     """Class to model Kernel Flows for convolutional neural network induced gaussian process kernels
@@ -23,8 +23,24 @@ class KernelFlowsCNNGP():
         self.reduction_constant = reduction_constant
         self.regularization_lambda = regularization_lambda
 
-        self.X: torch.Tensor = None
-        self.Y: torch.Tensor = None
+        self._X: torch.Tensor = None
+        self._Y: torch.Tensor = None
+
+    @property
+    def X(self):
+        return self._X
+
+    @X.setter
+    def X(self, X):
+        self._X = X.to(torch.float32)
+
+    @property
+    def Y(self):
+        return self._Y
+
+    @Y.setter
+    def Y(self, Y):
+        self._Y = Y.to(torch.float32)
 
     @property
     def cnn_gp_kernel(self):
@@ -104,8 +120,15 @@ class KernelFlowsCNNGP():
 
         return sample_indices, batch_indices
 
-    def kernel_regression(self):
-        pass
+    def kernel_regression(self, X_test: torch.Tensor):
+        if self._X is None or self.Y is None:
+            raise Exception("Train dataset not provided.")
+
+        k_matrix = self.cnn_gp_kernel(self.X, self.X)
+        k_matrix += self.regularization_lambda * torch.eye(k_matrix.shape[0])
+        t_matrix = self.cnn_gp_kernel(X_test, self.X)
+        prediction = torch.matmul(t_matrix, torch.matmul(torch.linalg.inv(k_matrix), self.Y))
+        return prediction
 
     def sample_size_linear(self, iterations, range_tuple):
         return np.linspace(range_tuple[0], range_tuple[1], num = iterations)[::-1]
@@ -155,7 +178,7 @@ class KernelFlowsCNNGP():
         # This will then have to be updated
 
         if optimizer not in ACCEPTED_OPTIMIZERS:
-            raise RuntimeError("Optimizer should be a string in " + ACCEPTED_OPTIMIZERS)
+            raise RuntimeError("Optimizer should be a string in [SGD, ADAM]")
 
         if optimizer == 'SGD':
             optimizer =  torch.optim.SGD(self.cnn_gp_kernel.parameters(), lr=self.learning_rate)
@@ -171,7 +194,7 @@ class KernelFlowsCNNGP():
         adaptive_counter = 0
 
         if adaptive_size == False or adaptive_size == "Dynamic":
-            sample_size = self.proportion
+            sample_size = sample_proportion
         elif adaptive_size == "Linear":
             sample_size_array = self.sample_size_linear(iterations, self.adaptive_range)
         else:
@@ -191,7 +214,7 @@ class KernelFlowsCNNGP():
                 adaptive_counter= 0
 
             # Create batch N_f and sample N_c = p*N_f
-            sample_indices, batch_indices = KernelFlowsCNNGP.batch_creation(dataset_size= self.X.shape[0],
+            sample_indices, batch_indices = KernelFlowsCNNGP.batch_creation(dataset_size= self._X.shape[0],
                                                                             batch_size= batch_size,
                                                                             sample_proportion= sample_proportion)
             X_batch = self.X[batch_indices]
@@ -214,7 +237,7 @@ class KernelFlowsCNNGP():
             optimizer.step()
 
             # Store value of rho
-            self.rho_values(rho.detach().numpy())
+            self.rho_values.append(rho.detach().numpy())
 
-    def predict(self):
-        pass
+    def predict(self, X_test: torch.Tensor):
+        self.kernel_regression(X_test=X_test)
