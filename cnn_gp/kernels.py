@@ -66,7 +66,7 @@ class Conv2d(NNGPKernel):
         self.stride = stride
         self.dilation = dilation
         # Not needed as they will be registered separately as parameters
-        # self.var_weight = var_weight 
+        # self.var_weight = var_weight
         # self.var_bias = var_bias
         self.kernel_has_row_of_zeros = False
         if padding == "same":
@@ -77,9 +77,9 @@ class Conv2d(NNGPKernel):
             self.padding = padding
 
     ###########################REMOVED KERNEL CALCULATION AND ADDED VARIANCES AS TRAINABLE PARAMETERS###########################
-        weight_var = nn.Parameter(t.Tensor([var_weight])) 
+        weight_var = nn.Parameter(t.Tensor([var_weight]))
         self.register_parameter('var_weight', weight_var)
-        bias_var = nn.Parameter(t.Tensor([var_bias])) 
+        bias_var = nn.Parameter(t.Tensor([var_bias]))
         self.register_parameter('var_bias', bias_var)
 
         # if self.kernel_has_row_of_zeros:
@@ -112,7 +112,7 @@ class Conv2d(NNGPKernel):
         kernel = kernel * (self.var_weight / self.kernel_size**2)
         ###########################ADDED CALCULATION OF KERNEL FROM TRAINABLE VARIANCES###########################
         def f(patch):
-            return (F.conv2d(patch, kernel, stride=self.stride, # CHANGE self.kernel to kernel 
+            return (F.conv2d(patch, kernel, stride=self.stride, # CHANGE self.kernel to kernel
                              padding=self.padding, dilation=self.dilation)
                     + self.var_bias)
         return ConvKP(kp.same, kp.diag, f(kp.xy), f(kp.xx), f(kp.yy))
@@ -166,8 +166,19 @@ class ReLU(NNGPKernel):
         xx_yy = kp.xx * kp.yy + self.f32_tiny
 
         # Clamp these so the outputs are not NaN
-        cos_theta = (kp.xy * xx_yy.rsqrt()).clamp(-1, 1)
-        sin_theta = t.sqrt((xx_yy - kp.xy**2).clamp(min=0))
+        # Use small eps to avoid NaN during backpropagation
+        eps = 1e-6
+        ###########################MADE RECIPROCAL SQRT NUMERICALLY STABLE###########################
+        # TODO: Check with Prof if this is ok to do
+        inverse_sqrt_xx_yy = 1 / (t.sqrt(xx_yy) + eps)
+        cos_theta = (kp.xy * inverse_sqrt_xx_yy).clamp(-1+eps, 1-eps)
+        # cos_theta = (kp.xy * xx_yy.rsqrt()).clamp(-1+eps, 1-eps)
+        ###########################MADE RECIPROCAL SQRT NUMERICALLY STABLE###########################
+
+        sin_theta = t.sqrt((xx_yy - kp.xy**2).clamp(min=eps))
+
+        # cos_theta = (kp.xy * xx_yy.rsqrt()).clamp(-1, 1)
+        # sin_theta = t.sqrt((xx_yy - kp.xy**2).clamp(min=0))
         theta = t.acos(cos_theta)
         xy = (sin_theta + (math.pi - theta)*kp.xy) / (2*math.pi)
 

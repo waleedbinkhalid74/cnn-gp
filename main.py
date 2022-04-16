@@ -6,6 +6,7 @@ from KernelFlow import KernelFlowsCNNGP
 from KernelFlow import batch_creation
 import torch.nn.functional as F
 from torchvision import datasets, transforms
+from torch import autograd
 
 if __name__ == "__main__":
 
@@ -78,6 +79,8 @@ if __name__ == "__main__":
     # print(rho, rho_comp, np.abs(rho.detach().numpy() - rho_comp))
     # print(np.isclose(rho.detach().numpy(), rho_comp, 1e-2))
 
+############################################################################################################################
+    autograd.set_detect_anomaly(True)
     transform = transforms.Compose([transforms.ToTensor()
                               ])
 
@@ -114,7 +117,17 @@ if __name__ == "__main__":
                 )
 
     KF_CNN_GP = KernelFlowsCNNGP(model)
-    KF_CNN_GP.fit(X_train, Y_train, 10, 50, 0.5)
+    KF_CNN_GP.fit(X_train, Y_train, 3, 50, 0.5)
 
+############################################################################################################################
+    for param in model.parameters():
+        print(param, param.grad)
 
+    # K_xx = model(X_train, X_train)
+    # Loss = torch.sum(K_xx)
+    # print(Loss)
+    # Loss.backward()
+
+    # for param in model.parameters():
+    #     print(param, param.grad)
 

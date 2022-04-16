@@ -1,5 +1,6 @@
 from pickletools import optimize
 from typing import Tuple
+import warnings
 from cnn_gp import NNGPKernel
 import torch
 import numpy as np
@@ -180,6 +181,8 @@ class KernelFlowsCNNGP():
         if optimizer not in ACCEPTED_OPTIMIZERS:
             raise RuntimeError("Optimizer should be a string in [SGD, ADAM]")
 
+        # self.cnn_gp_kernel.train()
+
         if optimizer == 'SGD':
             optimizer =  torch.optim.SGD(self.cnn_gp_kernel.parameters(), lr=self.learning_rate)
         elif optimizer == 'ADAM':
@@ -229,6 +232,8 @@ class KernelFlowsCNNGP():
 
             # Calculate rho
             rho = self.rho(X_batch=X_batch, Y_batch=Y_batch, Y_sample=Y_sample, pi_matrix=pi_matrix)
+            if  rho > 1.01 or rho < -0.1:
+                warnings.warn("Warning, rho outside [0,1]: ")
             # Calculate gradients
             optimizer.zero_grad()
             rho.backward()
@@ -240,4 +245,8 @@ class KernelFlowsCNNGP():
             self.rho_values.append(rho.detach().numpy())
 
     def predict(self, X_test: torch.Tensor):
-        self.kernel_regression(X_test=X_test)
+        self.cnn_gp_kernel.eval()
+        with torch.no_grad():
+            prediction = self.kernel_regression(X_test=X_test)
+
+        return prediction
