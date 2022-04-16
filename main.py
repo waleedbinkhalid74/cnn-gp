@@ -7,6 +7,7 @@ from KernelFlow import batch_creation
 import torch.nn.functional as F
 from torchvision import datasets, transforms
 from torch import autograd
+from utils import get_accuracy
 
 if __name__ == "__main__":
 
@@ -84,20 +85,20 @@ if __name__ == "__main__":
     transform = transforms.Compose([transforms.ToTensor()
                               ])
 
-    batch_size = 100
+    batch_size = 5000
     val_size = 50
 
     # MNIST
-    trainset = datasets.MNIST('MNIST_dataset/train', download=True, train=True, transform=transform)
-    valset = datasets.MNIST('MNIST_dataset/val', download=True, train=False, transform=transform)
-    trainloader = torch.utils.data.DataLoader(trainset, batch_size=batch_size, shuffle=False)
-    valloader = torch.utils.data.DataLoader(valset, batch_size=batch_size, shuffle=False)
+    # trainset = datasets.MNIST('MNIST_dataset/train', download=True, train=True, transform=transform)
+    # valset = datasets.MNIST('MNIST_dataset/val', download=True, train=False, transform=transform)
+    # trainloader = torch.utils.data.DataLoader(trainset, batch_size=batch_size, shuffle=False)
+    # valloader = torch.utils.data.DataLoader(valset, batch_size=batch_size, shuffle=False)
 
     # Fashion MNIST
-    # trainset = datasets.FashionMNIST('Fashion_MNIST_dataset/train', download=True, train=True, transform=transform)
-    # valset = datasets.FashionMNIST('Fashion_MNIST_dataset/val', download=True, train=False, transform=transform)
-    # trainloader = torch.utils.data.DataLoader(trainset, batch_size=batch_size, shuffle=True)
-    # valloader = torch.utils.data.DataLoader(valset, batch_size=batch_size, shuffle=True)
+    trainset = datasets.FashionMNIST('Fashion_MNIST_dataset/train', download=True, train=True, transform=transform)
+    valset = datasets.FashionMNIST('Fashion_MNIST_dataset/val', download=True, train=False, transform=transform)
+    trainloader = torch.utils.data.DataLoader(trainset, batch_size=batch_size, shuffle=False)
+    valloader = torch.utils.data.DataLoader(valset, batch_size=batch_size, shuffle=False)
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
@@ -108,6 +109,23 @@ if __name__ == "__main__":
     dataiter_val = iter(valloader)
     X_test, Y_test = dataiter_val.next()
 
+    model_untrained = Sequential(
+                            Conv2d(kernel_size=3),
+                            ReLU(),
+                            Conv2d(kernel_size=3, stride=2),
+                            ReLU(),
+                            Conv2d(kernel_size=14, padding=0),  # equivalent to a dense layer
+                            )
+
+    # Y_pred_untrained = KernelFlowsCNNGP.kernel_regression(X_test=X_test,
+    #                                    X_train=X_train[:100],
+    #                                    Y_train=Y_train[:100].to(torch.float32),
+    #                                    kernel=model_untrained)
+
+    # Y_pred_untrained = torch.argmax(Y_pred_untrained, axis=1)
+    # accuracy_untrained = get_accuracy(Y_pred_untrained.detach().numpy(), Y_test.detach().numpy())
+    # print(f"""Untrained accuracy is {accuracy_untrained}""")
+
     model = Sequential(
                 Conv2d(kernel_size=3),
                 ReLU(),
@@ -117,11 +135,14 @@ if __name__ == "__main__":
                 )
 
     KF_CNN_GP = KernelFlowsCNNGP(model)
-    KF_CNN_GP.fit(X_train, Y_train, 3, 50, 0.5)
+    KF_CNN_GP.fit(X_train, Y_train, 10, 50, 0.5)
+    Y_pred = KF_CNN_GP.predict(X_test=X_test,N_I=100)
+    Y_pred = torch.argmax(Y_pred, axis=1)
+    accuracy_untrained = get_accuracy(Y_pred.detach().numpy(), Y_test.detach().numpy())
+    print(f"""Trained accuracy is {accuracy_untrained}""")
+    print("rho values", KF_CNN_GP.rho_values)
 
 ############################################################################################################################
-    for param in model.parameters():
-        print(param, param.grad)
 
     # K_xx = model(X_train, X_train)
     # Loss = torch.sum(K_xx)

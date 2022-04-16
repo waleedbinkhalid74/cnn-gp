@@ -85,7 +85,7 @@ class KernelFlowsCNNGP():
 
 
     @staticmethod
-    def batch_creation(dataset_size:int, batch_size: int, sample_proportion: float):
+    def batch_creation(dataset_size:int, batch_size: int, sample_proportion: float = 0.5):
         """Creates a batch N_f and sample N_c from available data for kernel regression
 
         Args:
@@ -121,14 +121,14 @@ class KernelFlowsCNNGP():
 
         return sample_indices, batch_indices
 
-    def kernel_regression(self, X_test: torch.Tensor):
-        if self._X is None or self.Y is None:
-            raise Exception("Train dataset not provided.")
+    @staticmethod
+    def kernel_regression(X_test: torch.Tensor, X_train: torch.Tensor,
+                          Y_train: torch.Tensor, kernel, regularization_lambda = 0.0001):
 
-        k_matrix = self.cnn_gp_kernel(self.X, self.X)
-        k_matrix += self.regularization_lambda * torch.eye(k_matrix.shape[0])
-        t_matrix = self.cnn_gp_kernel(X_test, self.X)
-        prediction = torch.matmul(t_matrix, torch.matmul(torch.linalg.inv(k_matrix), self.Y))
+        k_matrix = kernel(X_train, X_train)
+        k_matrix += regularization_lambda * torch.eye(k_matrix.shape[0])
+        t_matrix = kernel(X_test, X_train)
+        prediction = torch.matmul(t_matrix, torch.matmul(torch.linalg.inv(k_matrix), Y_train))
         return prediction
 
     def sample_size_linear(self, iterations, range_tuple):
@@ -160,6 +160,10 @@ class KernelFlowsCNNGP():
 
         # Add regularization
         inverse_data = torch.linalg.inv(theta + self.regularization_lambda * torch.eye(theta.shape[0]))
+
+        # Delete theta matrix to free memory as it is not needed beyond this point
+        del theta
+
         inverse_sample = torch.linalg.inv(sample_matrix + self.regularization_lambda * torch.eye(sample_matrix.shape[0]))
 
         # Calculate numerator
@@ -222,7 +226,7 @@ class KernelFlowsCNNGP():
                                                                             sample_proportion= sample_proportion)
             X_batch = self.X[batch_indices]
             Y_batch = self.Y[batch_indices]
-            X_sample = X_batch[sample_indices]
+            # X_sample = X_batch[sample_indices]
             Y_sample = Y_batch[sample_indices]
             N_f = len(batch_indices)
             N_c = len(sample_indices)
@@ -244,9 +248,22 @@ class KernelFlowsCNNGP():
             # Store value of rho
             self.rho_values.append(rho.detach().numpy())
 
-    def predict(self, X_test: torch.Tensor):
+    def predict(self, X_test: torch.Tensor, N_I: int):
         self.cnn_gp_kernel.eval()
+        _, batch_indices = KernelFlowsCNNGP.batch_creation(dataset_size= self._X.shape[0],
+                                                                batch_size= N_I)
+
+        X_batch = self.X[batch_indices]
+        Y_batch = self.Y[batch_indices]
+
+        del self._X
+        del self._Y
+
         with torch.no_grad():
-            prediction = self.kernel_regression(X_test=X_test)
+            prediction = KernelFlowsCNNGP.kernel_regression(X_train= X_batch,
+                                                            Y_train= Y_batch,
+                                                            X_test=X_test,
+                                                            kernel=self.cnn_gp_kernel,
+                                                            regularization_lambda=self.regularization_lambda)
 
         return prediction
