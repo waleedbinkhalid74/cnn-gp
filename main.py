@@ -8,6 +8,11 @@ import torch.nn.functional as F
 from torchvision import datasets, transforms
 from torch import autograd
 from utils import get_accuracy
+import matplotlib.pyplot as plt
+from KernelFlow.Frechet.kernel_functions import kernel_RBF
+from kernels import RBF_Kernel
+import torchvision.transforms as T
+from torch import nn, optim
 
 if __name__ == "__main__":
 
@@ -81,50 +86,58 @@ if __name__ == "__main__":
     # print(np.isclose(rho.detach().numpy(), rho_comp, 1e-2))
 
 ############################################################################################################################
-    autograd.set_detect_anomaly(True)
-    transform = transforms.Compose([transforms.ToTensor()
+    # autograd.set_detect_anomaly(True)
+    # transform = transforms.Compose([transforms.ToTensor()
+    #                           ])
+    transform = transforms.Compose([transforms.ToTensor(),
+                                T.Lambda(lambda x: torch.flatten(x)),
+                                T.Lambda(lambda x: nn.functional.normalize(x, p=2, dim=0)),
+                                T.Lambda(lambda x: torch.reshape(x, (28,28))),
+                                T.Lambda(lambda x: torch.unsqueeze(x, dim=0))
                               ])
 
-    batch_size = 5000
-    val_size = 50
+    batch_size = 10000
+    val_size = 100
 
     # MNIST
-    # trainset = datasets.MNIST('MNIST_dataset/train', download=True, train=True, transform=transform)
-    # valset = datasets.MNIST('MNIST_dataset/val', download=True, train=False, transform=transform)
-    # trainloader = torch.utils.data.DataLoader(trainset, batch_size=batch_size, shuffle=False)
-    # valloader = torch.utils.data.DataLoader(valset, batch_size=batch_size, shuffle=False)
-
-    # Fashion MNIST
-    trainset = datasets.FashionMNIST('Fashion_MNIST_dataset/train', download=True, train=True, transform=transform)
-    valset = datasets.FashionMNIST('Fashion_MNIST_dataset/val', download=True, train=False, transform=transform)
+    trainset = datasets.MNIST('MNIST_dataset/train', download=True, train=True, transform=transform)
+    valset = datasets.MNIST('MNIST_dataset/val', download=True, train=False, transform=transform)
     trainloader = torch.utils.data.DataLoader(trainset, batch_size=batch_size, shuffle=False)
     valloader = torch.utils.data.DataLoader(valset, batch_size=batch_size, shuffle=False)
+
+    # Fashion MNIST
+    # trainset = datasets.FashionMNIST('Fashion_MNIST_dataset/train', download=True, train=True, transform=transform)
+    # valset = datasets.FashionMNIST('Fashion_MNIST_dataset/val', download=True, train=False, transform=transform)
+    # trainloader = torch.utils.data.DataLoader(trainset, batch_size=batch_size, shuffle=False)
+    # valloader = torch.utils.data.DataLoader(valset, batch_size=batch_size, shuffle=False)
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
     dataiter = iter(trainloader)
     X_train, Y_train = dataiter.next()
+    # X_train = nn.functional.normalize(X_train, p=2)
     Y_train = F.one_hot(Y_train, 10)
 
     dataiter_val = iter(valloader)
     X_test, Y_test = dataiter_val.next()
+    # X_test = nn.functional.normalize(X_test, p=2)
 
-    model_untrained = Sequential(
-                            Conv2d(kernel_size=3),
-                            ReLU(),
-                            Conv2d(kernel_size=3, stride=2),
-                            ReLU(),
-                            Conv2d(kernel_size=14, padding=0),  # equivalent to a dense layer
-                            )
+    # # model_untrained = Sequential(
+    #                         Conv2d(kernel_size=3),
+    #                         ReLU(),
+    #                         Conv2d(kernel_size=3, stride=2),
+    #                         ReLU(),
+    #                         Conv2d(kernel_size=14, padding=0),  # equivalent to a dense layer
+    #                         )
 
-    # Y_pred_untrained = KernelFlowsCNNGP.kernel_regression(X_test=X_test,
-    #                                    X_train=X_train[:100],
-    #                                    Y_train=Y_train[:100].to(torch.float32),
-    #                                    kernel=model_untrained)
+    # # Y_pred_untrained = KernelFlowsCNNGP.kernel_regression(X_test=X_test,
+    # #                                    X_train=X_train[:100],
+    # #                                    Y_train=Y_train[:100].to(torch.float32),
+    # #                                    kernel=model_untrained)
 
-    # Y_pred_untrained = torch.argmax(Y_pred_untrained, axis=1)
-    # accuracy_untrained = get_accuracy(Y_pred_untrained.detach().numpy(), Y_test.detach().numpy())
-    # print(f"""Untrained accuracy is {accuracy_untrained}""")
+    # # Y_pred_untrained = torch.argmax(Y_pred_untrained, axis=1)
+    # # accuracy_untrained = get_accuracy(Y_pred_untrained.detach().numpy(), Y_test.detach().numpy())
+    # # print(f"""Untrained accuracy is {accuracy_untrained}""")
 
     model = Sequential(
                 Conv2d(kernel_size=3),
@@ -135,20 +148,30 @@ if __name__ == "__main__":
                 )
 
     KF_CNN_GP = KernelFlowsCNNGP(model)
-    KF_CNN_GP.fit(X_train, Y_train, 10, 50, 0.5)
-    Y_pred = KF_CNN_GP.predict(X_test=X_test,N_I=100)
-    Y_pred = torch.argmax(Y_pred, axis=1)
-    accuracy_untrained = get_accuracy(Y_pred.detach().numpy(), Y_test.detach().numpy())
-    print(f"""Trained accuracy is {accuracy_untrained}""")
-    print("rho values", KF_CNN_GP.rho_values)
-
+    KF_CNN_GP.fit(X_train, Y_train, 200, 100, 0.5)
+    # Y_pred = KF_CNN_GP.predict(X_test=X_test,N_I=100)
+    # Y_pred = torch.argmax(Y_pred, axis=1)
+    # accuracy_untrained = get_accuracy(Y_pred.detach().numpy(), Y_test.detach().numpy())
+    # print(f"""Trained accuracy is {accuracy_untrained}""")
+    # print("rho values", KF_CNN_GP.rho_values)
+    plt.plot(KF_CNN_GP.rho_values)
+    plt.show()
 ############################################################################################################################
+    # kernel_control = kernel_RBF(matrix_1=torch.flatten(X_train, 1, -1).detach().numpy().squeeze(),
+    #                             matrix_2=torch.flatten(X_train, 1, -1).detach().numpy().squeeze(),
+    #                             parameters=np.array([4.0]))
 
-    # K_xx = model(X_train, X_train)
-    # Loss = torch.sum(K_xx)
-    # print(Loss)
-    # Loss.backward()
+    # rbf_kernel = RBF_Kernel(parameters=1.0)
+    # # kernel_test = rbf_kernel(matrix_1=torch.flatten(X_train, 1, -1), matrix_2=torch.flatten(X_train, 1, -1))
+    # # print(kernel_test.detach().numpy() - kernel_control)
+    # # np.all(np.isclose(kernel_test.detach().numpy(), kernel_control))
+    # iterations = 10
+    # batch_size = 100
+    # KF_RBF = KernelFlowsCNNGP(rbf_kernel)
+    # KF_RBF.fit(X_train, Y_train, iterations, batch_size, 0.5)
 
-    # for param in model.parameters():
+    # for param in rbf_kernel.parameters():
     #     print(param, param.grad)
 
+    # plt.plot(KF_RBF.rho_values)
+    # plt.show()

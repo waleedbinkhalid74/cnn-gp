@@ -6,23 +6,25 @@ import os
 from KernelFlow import KernelFlowsCNNGP
 from KernelFlow import frechet_grad, batch_creation
 import pytest
+from torchvision import datasets, transforms
 import numpy as np
+from KernelFlow.Frechet.kernel_functions import kernel_RBF
+from kernels import RBF_Kernel
 
+# def test_kernel_evaluation():
+#     """Sanity check to ensure if reproducability exists upon changes made to source code.
+#     """
+#     model = Sequential(Conv2d(kernel_size=3),
+#                         ReLU(),
+#                         Conv2d(kernel_size=3, stride=2),
+#                         ReLU(),
+#                         Conv2d(kernel_size=14, padding=0),  # equivalent to a dense layer
+#                     )
 
-def test_kernel_evaluation():
-    """Sanity check to ensure if reproducability exists upon changes made to source code.
-    """
-    model = Sequential(Conv2d(kernel_size=3),
-                        ReLU(),
-                        Conv2d(kernel_size=3, stride=2),
-                        ReLU(),
-                        Conv2d(kernel_size=14, padding=0),  # equivalent to a dense layer
-                    )
-
-    X_test = torch.load(os.getcwd() + "/test/cnn_gp/data/test_kernel_input.pt")
-    K_xx = model(X_test, X_test)
-    K_xx_compare = torch.load(os.getcwd() + "/test/cnn_gp/data/test_kernel_output.pt")
-    assert torch.equal(K_xx, K_xx_compare)
+#     X_test = torch.load(os.getcwd() + "/test/cnn_gp/data/test_kernel_input.pt")
+#     K_xx = model(X_test, X_test)
+#     K_xx_compare = torch.load(os.getcwd() + "/test/cnn_gp/data/test_kernel_output.pt")
+#     assert torch.equal(K_xx, K_xx_compare)
 
 
 def test_batch_sample_creation():
@@ -139,3 +141,33 @@ def test_predict():
     """Test if the prediction is done correctly
     """
     pass
+
+def test_rbf():
+    transform = transforms.Compose([transforms.ToTensor()
+                            ])
+
+    batch_size = 10
+    val_size = 100
+
+    # MNIST
+    trainset = datasets.MNIST('MNIST_dataset/train', download=True, train=True, transform=transform)
+    valset = datasets.MNIST('MNIST_dataset/val', download=True, train=False, transform=transform)
+    trainloader = torch.utils.data.DataLoader(trainset, batch_size=batch_size, shuffle=False)
+    valloader = torch.utils.data.DataLoader(valset, batch_size=batch_size, shuffle=False)
+
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
+    dataiter = iter(trainloader)
+    X_train, Y_train = dataiter.next()
+    Y_train = F.one_hot(Y_train, 10)
+
+    dataiter_val = iter(valloader)
+    X_test, Y_test = dataiter_val.next()
+
+    kernel_control = kernel_RBF(matrix_1=torch.flatten(X_train, 1, -1).detach().numpy().squeeze(),
+                            matrix_2=torch.flatten(X_train, 1, -1).detach().numpy().squeeze(),
+                            parameters=np.array([4.0]))
+    rbf_kernel = RBF_Kernel(parameters=4.0)
+    kernel_test = rbf_kernel(matrix_1=torch.flatten(X_train, 1, -1), matrix_2=torch.flatten(X_train, 1, -1))
+    print(kernel_test.detach().numpy() - kernel_control)
+    assert np.all(np.isclose(kernel_test.detach().numpy(), kernel_control))

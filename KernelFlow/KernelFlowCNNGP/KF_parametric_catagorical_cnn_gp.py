@@ -12,7 +12,7 @@ class KernelFlowsCNNGP():
     """Class to model Kernel Flows for convolutional neural network induced gaussian process kernels
     """
     def __init__(self, cnn_gp_kernel: NNGPKernel, lr: float = 0.1,
-                 beta: float = 0.9, regularization_lambda: float = 0.0001,
+                 beta: float = 0.9, regularization_lambda: float = 0.000001,
                  reduction_constant: float = 0.0):
         # Lists that keep track of the history of the algorithm
         self.rho_values = []
