@@ -121,14 +121,22 @@ class KernelFlowsCNNGP():
 
         return sample_indices, batch_indices
 
+
+    @staticmethod
+    def block_kernel_regression():
+        pass
+
     @staticmethod
     def kernel_regression(X_test: torch.Tensor, X_train: torch.Tensor,
-                          Y_train: torch.Tensor, kernel, regularization_lambda = 0.0001):
+                          Y_train: torch.Tensor, kernel, regularization_lambda = 0.0001,
+                          blocksize: int = 100):
 
         k_matrix = kernel(X_train, X_train)
         k_matrix += regularization_lambda * torch.eye(k_matrix.shape[0])
         t_matrix = kernel(X_test, X_train)
         prediction = torch.matmul(t_matrix, torch.matmul(torch.linalg.inv(k_matrix), Y_train))
+
+        del k_matrix, t_matrix
         return prediction
 
     def sample_size_linear(self, iterations, range_tuple):
@@ -237,7 +245,11 @@ class KernelFlowsCNNGP():
             # Calculate rho
             rho = self.rho(X_batch=X_batch, Y_batch=Y_batch, Y_sample=Y_sample, pi_matrix=pi_matrix)
             if  rho > 1.01 or rho < -0.1:
-                warnings.warn("Warning, rho outside [0,1]: ")
+                warnings.warn("Warning, rho outside [0,1]")
+                print(f"""Warning, rho outside [0,1]. rho = {rho}""")
+
+            if torch.isnan(rho):
+                raise ValueError("rho is NaN!")
             # Calculate gradients
             optimizer.zero_grad()
             rho.backward()

@@ -1,6 +1,10 @@
 # Datasets
 *dataset*
 *.ipynb
+
+!CNN_GP_Memory.ipynb
+models/
+figs/
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
