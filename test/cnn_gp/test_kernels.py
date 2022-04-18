@@ -193,9 +193,55 @@ def test_blocked_kernel_eval_square_result():
     # Blockwise Kernel
     k_blocked = KernelFlowsCNNGP._block_kernel_eval(X=X,
                                                     Y=X,
-                                                    blocks_horizontal=4,
-                                                    blocks_vertical=4,
                                                     blocksize=25,
                                                     kernel=model_untrained)
 
     assert torch.equal(k_full, k_blocked)
+
+def test_blocked_kernel_eval_rec_result():
+    """Test if blocked kernel evaluation with remainder answer results in the same result as a complete evaluation
+    """
+    X = torch.rand((200, 1, 28, 28))
+    Y = torch.rand((200, 10))
+
+    model_untrained = Sequential(
+        Conv2d(kernel_size=3),
+        ReLU(),
+        Conv2d(kernel_size=3, stride=2),
+        ReLU(),
+        Conv2d(kernel_size=14, padding=0),  # equivalent to a dense layer
+        )
+
+    # Complete Kernel
+    k_full = model_untrained(X[:125], X[:125])
+
+    # Blockwise Kernel
+    k_blocked = KernelFlowsCNNGP._block_kernel_eval(X=X[:125],
+                                                    Y=X[:125],
+                                                    blocksize=50,
+                                                    kernel=model_untrained)
+
+    assert torch.equal(k_full, k_blocked)
+
+    # Complete Kernel
+    k_full = model_untrained(X[:120], X[:125])
+
+    # Blockwise Kernel
+    k_blocked = KernelFlowsCNNGP._block_kernel_eval(X=X[:120],
+                                                    Y=X[:125],
+                                                    blocksize=50,
+                                                    kernel=model_untrained)
+
+    assert torch.equal(k_full, k_blocked)
+
+    # Complete Kernel
+    k_full = model_untrained(X[:116], X[:110])
+
+    # Blockwise Kernel
+    k_blocked = KernelFlowsCNNGP._block_kernel_eval(X=X[:116],
+                                                    Y=X[:110],
+                                                    blocksize=50,
+                                                    kernel=model_untrained)
+
+    assert torch.equal(k_full, k_blocked)
+
