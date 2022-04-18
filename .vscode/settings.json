@@ -1,7 +1,0 @@
-{
-    "python.linting.pylintEnabled": false,
-    "python.linting.enabled": false,
-    "python.linting.flake8Enabled": false,
-    "python.linting.mypyEnabled": false,
-    "autoDocstring.docstringFormat": "google"
-}
