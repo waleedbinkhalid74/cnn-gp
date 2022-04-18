@@ -177,23 +177,25 @@ class KernelFlowsCNNGP():
         Returns:
             torch.Tensor: Evaluated kernel result
         """
+        kernel.eval()
         blocks_horizontal = X.shape[0] // blocksize
         blocks_vertical = Y.shape[0] // blocksize
         remainder_vertical = X.shape[0] - blocks_vertical*blocksize
         remainder_horizontal = Y.shape[0] - blocks_horizontal*blocksize
 
-        k_matrix = torch.ones((X.shape[0], Y.shape[0]), dtype=torch.float32)
+        k_matrix = np.ones((X.shape[0], Y.shape[0]), dtype=float)
         for block_vertical in tqdm(range(blocks_vertical)):
             X_batch_train_vertical = X[block_vertical*blocksize:(block_vertical+1)*blocksize]
             for block_horizontal in range(blocks_horizontal):
                 Y_batch_train_horizontal = Y[block_horizontal*blocksize:(block_horizontal+1)*blocksize]
                 k_matrix_batch = kernel(X_batch_train_vertical, Y_batch_train_horizontal)
-                k_matrix[block_vertical*blocksize:(block_vertical+1)*blocksize, block_horizontal*blocksize:(block_horizontal+1)*blocksize] = k_matrix_batch
+                k_matrix[block_vertical*blocksize:(block_vertical+1)*blocksize, block_horizontal*blocksize:(block_horizontal+1)*blocksize] = k_matrix_batch.detach().numpy()
+                del k_matrix_batch, Y_batch_train_horizontal
             # Handling horizontal remainders
             if remainder_horizontal > 0:
                 Y_batch_train_horizontal = Y[(block_horizontal+1)*blocksize:(block_horizontal+1)*blocksize + remainder_horizontal]
                 k_matrix_batch = kernel(X_batch_train_vertical, Y_batch_train_horizontal)
-                k_matrix[block_vertical*blocksize:(block_vertical+1)*blocksize, (block_horizontal+1)*blocksize:(block_horizontal+1)*blocksize + remainder_horizontal] = k_matrix_batch
+                k_matrix[block_vertical*blocksize:(block_vertical+1)*blocksize, (block_horizontal+1)*blocksize:(block_horizontal+1)*blocksize + remainder_horizontal] = k_matrix_batch.detach().numpy()
 
         # Evaluating vertical remainder blocks rv
         if remainder_vertical > 0:
@@ -201,11 +203,11 @@ class KernelFlowsCNNGP():
             for block_horizontal in range(blocks_horizontal):
                 Y_batch_train_horizontal = Y[block_horizontal*blocksize:(block_horizontal+1)*blocksize]
                 k_matrix_batch = kernel(X_batch_train_vertical, Y_batch_train_horizontal)
-                k_matrix[(block_vertical+1)*blocksize:(block_vertical+1)*blocksize + remainder_vertical, block_horizontal*blocksize:(block_horizontal+1)*blocksize] = k_matrix_batch
+                k_matrix[(block_vertical+1)*blocksize:(block_vertical+1)*blocksize + remainder_vertical, block_horizontal*blocksize:(block_horizontal+1)*blocksize] = k_matrix_batch.detach().numpy()
             if remainder_horizontal > 0:
                 Y_batch_train_horizontal = Y[(block_horizontal+1)*blocksize:(block_horizontal+1)*blocksize + remainder_horizontal]
                 k_matrix_batch = kernel(X_batch_train_vertical, Y_batch_train_horizontal)
-                k_matrix[(block_vertical+1)*blocksize:(block_vertical+1)*blocksize + remainder_vertical, (block_horizontal+1)*blocksize:(block_horizontal+1)*blocksize + remainder_horizontal] = k_matrix_batch
+                k_matrix[(block_vertical+1)*blocksize:(block_vertical+1)*blocksize + remainder_vertical, (block_horizontal+1)*blocksize:(block_horizontal+1)*blocksize + remainder_horizontal] = k_matrix_batch.detach().numpy()
 
         return k_matrix
 
@@ -228,9 +230,9 @@ class KernelFlowsCNNGP():
         """
 
         if blocksize is False:
-            k_matrix = kernel(X_train, X_train)
-            k_matrix += regularization_lambda * torch.eye(k_matrix.shape[0])
-            t_matrix = kernel(X_test, X_train)
+            k_matrix = kernel(X_train, X_train).detach().numpy()
+            k_matrix += regularization_lambda * np.eye(k_matrix.shape[0])
+            t_matrix = kernel(X_test, X_train).detach().numpy()
             prediction = torch.matmul(t_matrix, torch.matmul(torch.linalg.inv(k_matrix), Y_train))
             print("Condition numbers of k_matrix and t_matrix are: ", torch.linalg.cond(k_matrix), torch.linalg.cond(t_matrix))
             return prediction#, k_matrix, t_matrix
