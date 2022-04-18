@@ -127,15 +127,15 @@ def test_rho():
     K_xx = model(X_batch, X_batch)
     K_xx = K_xx.detach().numpy()
     sample_matrix = np.matmul(pi_comp, np.matmul(K_xx, np.transpose(pi_comp)))
-    inverse_data = np.linalg.inv(K_xx + 0.0001 * np.identity(K_xx.shape[0]))
-    inverse_sample = np.linalg.inv(sample_matrix + 0.0001 * np.identity(sample_matrix.shape[0]))
+    inverse_data = np.linalg.inv(K_xx + 0.000001 * np.identity(K_xx.shape[0]))
+    inverse_sample = np.linalg.inv(sample_matrix + 0.000001 * np.identity(sample_matrix.shape[0]))
     top = np.matmul(Y_sample.T, np.matmul(inverse_sample, Y_sample))
     bottom = np.matmul(Y_batch.T, np.matmul(inverse_data, Y_batch))
     rho_comp = 1 - np.trace(top)/np.trace(bottom)
     # TODO: Check if a relative tolerance of just 0.01 is acceptable.
     # Pytorch and numpy result in slightly different results due to numerical reasons
     # Is this acceptable?
-    assert np.isclose(rho.detach().numpy(), rho_comp, 1e-2)
+    assert np.isclose(rho.detach().numpy(), rho_comp, 1e-3)
 
 def test_predict():
     """Test if the prediction is done correctly
@@ -171,3 +171,31 @@ def test_rbf():
     kernel_test = rbf_kernel(matrix_1=torch.flatten(X_train, 1, -1), matrix_2=torch.flatten(X_train, 1, -1))
     print(kernel_test.detach().numpy() - kernel_control)
     assert np.all(np.isclose(kernel_test.detach().numpy(), kernel_control))
+
+
+def test_blocked_kernel_eval_square_result():
+    """Test if blocked kernel evaluation results in the same result as a complete evaluation
+    """
+    X = torch.rand((100, 1, 28, 28))
+    Y = torch.rand((100, 10))
+
+    model_untrained = Sequential(
+        Conv2d(kernel_size=3),
+        ReLU(),
+        Conv2d(kernel_size=3, stride=2),
+        ReLU(),
+        Conv2d(kernel_size=14, padding=0),  # equivalent to a dense layer
+        )
+
+    # Complete Kernel
+    k_full = model_untrained(X, X)
+
+    # Blockwise Kernel
+    k_blocked = KernelFlowsCNNGP._block_kernel_eval(X=X,
+                                                    Y=X,
+                                                    blocks_horizontal=4,
+                                                    blocks_vertical=4,
+                                                    blocksize=25,
+                                                    kernel=model_untrained)
+
+    assert torch.equal(k_full, k_blocked)

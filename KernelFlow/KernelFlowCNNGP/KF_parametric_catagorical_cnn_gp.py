@@ -123,21 +123,71 @@ class KernelFlowsCNNGP():
 
 
     @staticmethod
-    def block_kernel_regression():
-        pass
+    def _block_kernel_eval(X, Y, blocks_horizontal, blocks_vertical, blocksize, kernel):
+
+        k_matrix = torch.ones((X.shape[0], Y.shape[0]), dtype=torch.float32)
+        for block_vertical in tqdm(range(blocks_vertical)):
+            X_batch_train_vertical = X[block_vertical*blocksize:(block_vertical+1)*blocksize]
+            for block_horizontal in range(blocks_horizontal):
+                Y_batch_train_horizontal = Y[block_horizontal*blocksize:(block_horizontal+1)*blocksize]
+                k_matrix_batch = kernel(X_batch_train_vertical, Y_batch_train_horizontal)
+                k_matrix[block_vertical*blocksize:(block_vertical+1)*blocksize, block_horizontal*blocksize:(block_horizontal+1)*blocksize] = k_matrix_batch
+        return k_matrix
 
     @staticmethod
     def kernel_regression(X_test: torch.Tensor, X_train: torch.Tensor,
                           Y_train: torch.Tensor, kernel, regularization_lambda = 0.0001,
-                          blocksize: int = 100):
+                          blocksize: int = False):
 
-        k_matrix = kernel(X_train, X_train)
+        if blocksize is False:
+            k_matrix = kernel(X_train, X_train)
+            k_matrix += regularization_lambda * torch.eye(k_matrix.shape[0])
+            t_matrix = kernel(X_test, X_train)
+            prediction = torch.matmul(t_matrix, torch.matmul(torch.linalg.inv(k_matrix), Y_train))
+            print("Condition numbers of k_matrix and t_matrix are: ", torch.linalg.cond(k_matrix), torch.linalg.cond(t_matrix))
+            return prediction#, k_matrix, t_matrix
+
+        # kernel = kernel.double()
+        # X_test = X_test.to(torch.float32)
+        # X_train = X_train.to(torch.float32)
+        # Y_train = Y_train.to(torch.float32)
+
+        blocks_train = X_train.shape[0] // blocksize
+        blocks_test = X_test.shape[0] // blocksize
+        remainder_train = X_train.shape[0] - blocksize*blocks_train
+        remainder_test = X_test.shape[0] - blocksize*blocks_test
+
+        # matrix block evaluation
+        k_matrix = torch.ones((X_train.shape[0], X_train.shape[0]), dtype=torch.float32)
+        t_matrix = torch.ones((X_test.shape[0], X_train.shape[0]), dtype=torch.float32)
+
+        k_matrix = KernelFlowsCNNGP._block_kernel_eval(X=X_train,
+                                                        Y=X_train,
+                                                        blocks_horizontal=blocks_train,
+                                                        blocks_vertical=blocks_train,
+                                                        blocksize=blocksize,
+                                                        kernel=kernel)
+
         k_matrix += regularization_lambda * torch.eye(k_matrix.shape[0])
-        t_matrix = kernel(X_test, X_train)
-        prediction = torch.matmul(t_matrix, torch.matmul(torch.linalg.inv(k_matrix), Y_train))
 
-        del k_matrix, t_matrix
-        return prediction
+        t_matrix = KernelFlowsCNNGP._block_kernel_eval(X=X_test,
+                                                        Y=X_train,
+                                                        blocks_horizontal=blocks_train,
+                                                        blocks_vertical=blocks_test,
+                                                        blocksize=blocksize,
+                                                        kernel=kernel)
+
+        print("Condition numbers of k_matrix and t_matrix are: ", torch.linalg.cond(k_matrix), torch.linalg.cond(t_matrix))
+#########################VERIFY - REPLACING INVERSE WITH LEAST SQ AS PER MARTIN FOR NUMERICAL REASONS##################################
+        # prediction = torch.matmul(t_matrix, torch.matmul(torch.linalg.inv(k_matrix), Y_train))
+        k_inv_Y, _, _, _ = torch.linalg.lstsq(k_matrix, Y_train, rcond=1e-8)
+        prediction_lstsq = torch.matmul(t_matrix, k_inv_Y)
+
+#########################VERIFY - REPLACING INVERSE WITH LEAST SQ AS PER MARTIN FOR NUMERICAL REASONS##################################
+        return prediction_lstsq#, k_matrix, t_matrix
+
+
+        # T matrix block evaluation
 
     def sample_size_linear(self, iterations, range_tuple):
         return np.linspace(range_tuple[0], range_tuple[1], num = iterations)[::-1]
@@ -181,7 +231,7 @@ class KernelFlowsCNNGP():
         # Calculate rho
         rho = 1 - torch.trace(numerator)/torch.trace(denominator)
 
-        return rho
+        return rho #, sample_matrix, inverse_data, inverse_sample, numerator, denominator
 
 
     def fit(self, X: torch.Tensor, Y: torch.Tensor, iterations: int, batch_size = False,
