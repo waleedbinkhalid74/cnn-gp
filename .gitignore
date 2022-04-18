@@ -1,6 +1,7 @@
 # Datasets
 *dataset*
 *.ipynb
+.vscode/
 
 !CNN_GP_Memory.ipynb
 models/

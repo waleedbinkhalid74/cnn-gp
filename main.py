@@ -13,6 +13,10 @@ from KernelFlow.Frechet.kernel_functions import kernel_RBF
 from kernels import RBF_Kernel
 import torchvision.transforms as T
 from torch import nn, optim
+from __future__ import annotations
+
+def dumb():
+    return 10
 
 if __name__ == "__main__":
-    pass
+    print(dumb())

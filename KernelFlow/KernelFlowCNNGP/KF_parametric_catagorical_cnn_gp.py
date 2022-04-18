@@ -3,6 +3,7 @@ from typing import Tuple
 import warnings
 from cnn_gp import NNGPKernel
 import torch
+import torch.nn as nn
 import numpy as np
 from tqdm import tqdm
 
@@ -14,6 +15,16 @@ class KernelFlowsCNNGP():
     def __init__(self, cnn_gp_kernel: NNGPKernel, lr: float = 0.1,
                  beta: float = 0.9, regularization_lambda: float = 0.000001,
                  reduction_constant: float = 0.0):
+        """Constructor for the Kernel Flow class that uses convolutional neural networks induced gaussian process kernels
+           (Note, can also work with other kernels but they need to be a torch.nn.Module. See kernels folder for examples)
+
+        Args:
+            cnn_gp_kernel (NNGPKernel): cnn induced gp kernel
+            lr (float, optional): learning rate. Defaults to 0.1.
+            beta (float, optional): beta parameter. Defaults to 0.9.
+            regularization_lambda (float, optional): regularization. Defaults to 0.000001.
+            reduction_constant (float, optional): reduction constant. Defaults to 0.0.
+        """
         # Lists that keep track of the history of the algorithm
         self.rho_values = []
         self.grad_hist = []
@@ -28,23 +39,43 @@ class KernelFlowsCNNGP():
         self._Y: torch.Tensor = None
 
     @property
-    def X(self):
+    def X(self) -> torch.Tensor:
+        """Getter for training data
+
+        Returns:
+            torch.Tensor: Training Data
+        """
         return self._X
 
     @X.setter
-    def X(self, X):
+    def X(self, X: torch.Tensor):
+        """Setter for training data
+
+        Args:
+            X (torch.Tensor): Training Data
+        """
         self._X = X.to(torch.float32)
 
     @property
-    def Y(self):
+    def Y(self) -> torch.Tensor:
+        """Getter for training labels
+
+        Returns:
+            torch.Tensor: training labels
+        """
         return self._Y
 
     @Y.setter
-    def Y(self, Y):
+    def Y(self, Y: torch.Tensor):
+        """Setter for training labels
+
+        Args:
+            Y (torch.Tensor): training labels
+        """
         self._Y = Y.to(torch.float32)
 
     @property
-    def cnn_gp_kernel(self):
+    def cnn_gp_kernel(self) -> NNGPKernel:
         """Return the cnn induced gp for the kernel flow run
 
         Returns:
@@ -68,7 +99,7 @@ class KernelFlowsCNNGP():
             raise TypeError("Kernel type should be NNGPKernel")
 
     @staticmethod
-    def sample_selection(data_size: int, size: int):
+    def sample_selection(data_size: int, size: int) -> np.ndarray:
         """Selects an iid sample from the dataset without replacement
 
         Args:
@@ -85,7 +116,7 @@ class KernelFlowsCNNGP():
 
 
     @staticmethod
-    def batch_creation(dataset_size:int, batch_size: int, sample_proportion: float = 0.5):
+    def batch_creation(dataset_size:int, batch_size: int, sample_proportion: float = 0.5) -> Tuple[np.ndarray, np.ndarray]:
         """Creates a batch N_f and sample N_c from available data for kernel regression
 
         Args:
@@ -123,7 +154,20 @@ class KernelFlowsCNNGP():
 
 
     @staticmethod
-    def _block_kernel_eval(X, Y, blocks_horizontal, blocks_vertical, blocksize, kernel):
+    def _block_kernel_eval(X: torch.Tensor, Y: torch.Tensor, blocks_horizontal: int, blocks_vertical: int, blocksize: int, kernel: nn.Module) -> torch.Tensor:
+        """Evaluates the kernel matrix using a block wise evaluation approach
+
+        Args:
+            X (torch.Tensor): X input of kernel K(X, .)
+            Y (torch.Tensor): Y input of kernel K(., Y)
+            blocks_horizontal (int): Number of horizontal blocks
+            blocks_vertical (int): Number of vertical blocks
+            blocksize (int): Size of each block
+            kernel (nn.Module): Callable function that evaluates the kernel
+
+        Returns:
+            torch.Tensor: Evaluated kernel result
+        """
 
         k_matrix = torch.ones((X.shape[0], Y.shape[0]), dtype=torch.float32)
         for block_vertical in tqdm(range(blocks_vertical)):
@@ -136,8 +180,21 @@ class KernelFlowsCNNGP():
 
     @staticmethod
     def kernel_regression(X_test: torch.Tensor, X_train: torch.Tensor,
-                          Y_train: torch.Tensor, kernel, regularization_lambda = 0.0001,
-                          blocksize: int = False):
+                          Y_train: torch.Tensor, kernel: nn.Module, regularization_lambda = 0.0001,
+                          blocksize: int = False) -> torch.Tensor:
+        """Applies Kernel regression to provided data
+
+        Args:
+            X_test (torch.Tensor): Test dataset
+            X_train (torch.Tensor): Train dataset
+            Y_train (torch.Tensor): Train dataset labels, for classification tasks must be in one hot encoding.
+            kernel (nn.Module): Kernel used for kernel regression.
+            regularization_lambda (float, optional): Regularization parameter. Defaults to 0.0001.
+            blocksize (int, optional): Number of elements in each block. Defaults to False.
+
+        Returns:
+            torch.Tensor: Prediction result
+        """
 
         if blocksize is False:
             k_matrix = kernel(X_train, X_train)
@@ -146,11 +203,6 @@ class KernelFlowsCNNGP():
             prediction = torch.matmul(t_matrix, torch.matmul(torch.linalg.inv(k_matrix), Y_train))
             print("Condition numbers of k_matrix and t_matrix are: ", torch.linalg.cond(k_matrix), torch.linalg.cond(t_matrix))
             return prediction#, k_matrix, t_matrix
-
-        # kernel = kernel.double()
-        # X_test = X_test.to(torch.float32)
-        # X_train = X_train.to(torch.float32)
-        # Y_train = Y_train.to(torch.float32)
 
         blocks_train = X_train.shape[0] // blocksize
         blocks_test = X_test.shape[0] // blocksize
@@ -193,7 +245,18 @@ class KernelFlowsCNNGP():
         return np.linspace(range_tuple[0], range_tuple[1], num = iterations)[::-1]
 
     @staticmethod
-    def pi_matrix(sample_indices, dimension: Tuple):
+    def pi_matrix(sample_indices: np.ndarray, dimension: Tuple) -> torch.Tensor:
+        """Evaluates the pi matrix. pi matrix is the corresponding Nc x Nf sub-sampling
+            matrix defined by pi_{i;j} = delta_{sample}(i);j. The matrix has one non-zero (one)
+            entry in each row
+
+        Args:
+            sample_indices (np.ndarray): samples drawn from the batch
+            dimension (Tuple): dimensionality of the pi matrix N_c x N_f
+
+        Returns:
+            torch.Tensor: resulting pi matrix
+        """
         # pi matrix is a N_c by N_f (or sample size times batch size) matrix with binary entries.
         # The element of the matrix is 1 when
         pi = torch.zeros(dimension)
@@ -204,8 +267,19 @@ class KernelFlowsCNNGP():
         return pi
 
     def rho(self, X_batch: torch.Tensor, Y_batch: torch.Tensor,
-            Y_sample: torch.Tensor, pi_matrix: torch.Tensor):
-        # TODO: Add docstrings
+            Y_sample: torch.Tensor, pi_matrix: torch.Tensor) -> torch.Tensor:
+        """Calculates the rho which acts as the loss function for the Kernel Flow method. It evaluates how good the results were even when the
+        training input was reduced by a factor.
+
+        Args:
+            X_batch (torch.Tensor): Training batch dataset
+            Y_batch (torch.Tensor): Training batch dataset labels in one hot encoding
+            Y_sample (torch.Tensor): Training sample dataset drawn from the batch in one hot encoding
+            pi_matrix (torch.Tensor): pi matrix
+
+        Returns:
+            torch.Tensor: Resulting value of rho
+        """
         # rho = 1 - trace(Y_s^T * K(X_s, X_s)^-1 * Y_s) / trace(Y_b^T K(X_b, X_b)^-1 Y_b)
         # Calculation of two kernels is expensive so we use proposition 3.2 Owhadi 2018
         # rho = 1 - trace(Y_s^T * (pi_mat * K(X_b, X_b)^-1 pi_mat^T) * Y_s) / trace(Y_b^T K(X_b, X_b)^-1 Y_b)
@@ -234,16 +308,14 @@ class KernelFlowsCNNGP():
         return rho #, sample_matrix, inverse_data, inverse_sample, numerator, denominator
 
 
-    def fit(self, X: torch.Tensor, Y: torch.Tensor, iterations: int, batch_size = False,
+    def fit(self, X: torch.Tensor, Y: torch.Tensor, iterations: int, batch_size: int = False,
             sample_proportion: float = 0.5, optimizer: str = 'SGD', adaptive_size: bool = False):
+        if optimizer not in ACCEPTED_OPTIMIZERS:
+            raise RuntimeError("Optimizer should be a string in [SGD, ADAM]")
+        # self.cnn_gp_kernel.train()
         # TODO: Incase N_I is the sample size that can be extracted for regression purposes,
         # we do not need to save the entire training set. Only the N_I sampled.
         # This will then have to be updated
-
-        if optimizer not in ACCEPTED_OPTIMIZERS:
-            raise RuntimeError("Optimizer should be a string in [SGD, ADAM]")
-
-        # self.cnn_gp_kernel.train()
 
         if optimizer == 'SGD':
             optimizer =  torch.optim.SGD(self.cnn_gp_kernel.parameters(), lr=self.learning_rate)
@@ -310,10 +382,24 @@ class KernelFlowsCNNGP():
             # Store value of rho
             self.rho_values.append(rho.detach().numpy())
 
-    def predict(self, X_test: torch.Tensor, N_I: int):
+    def predict(self, X_test: torch.Tensor, N_I: int = False) -> torch.Tensor:
+        """Predict method for trained Kernel Flow model
+
+        Args:
+            X_test (torch.Tensor): Test dataset to predict
+            N_I (int, optional): This specifies how much of the original training dataset should be used in the kernel regression.
+            It is a good idea to set this parameter since often the training set is very large and evaluations can be prohibitively expensive. Defaults to False.
+
+        Returns:
+            torch.Tensor: Prediction results
+        """
         self.cnn_gp_kernel.eval()
-        _, batch_indices = KernelFlowsCNNGP.batch_creation(dataset_size= self._X.shape[0],
-                                                                batch_size= N_I)
+        if N_I is False:
+            _, batch_indices = KernelFlowsCNNGP.batch_creation(dataset_size= self._X.shape[0],
+                                                                    batch_size= self._X.shape[0])
+        else:
+            _, batch_indices = KernelFlowsCNNGP.batch_creation(dataset_size= self._X.shape[0],
+                                                                    batch_size= N_I)
 
         X_batch = self.X[batch_indices]
         Y_batch = self.Y[batch_indices]
