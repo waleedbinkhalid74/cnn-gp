@@ -6,23 +6,25 @@ import os
 from KernelFlow import KernelFlowsCNNGP
 from KernelFlow import frechet_grad, batch_creation
 import pytest
+from torchvision import datasets, transforms
 import numpy as np
+from KernelFlow.Frechet.kernel_functions import kernel_RBF
+from kernels import RBF_Kernel
 
+# def test_kernel_evaluation():
+#     """Sanity check to ensure if reproducability exists upon changes made to source code.
+#     """
+#     model = Sequential(Conv2d(kernel_size=3),
+#                         ReLU(),
+#                         Conv2d(kernel_size=3, stride=2),
+#                         ReLU(),
+#                         Conv2d(kernel_size=14, padding=0),  # equivalent to a dense layer
+#                     )
 
-def test_kernel_evaluation():
-    """Sanity check to ensure if reproducability exists upon changes made to source code.
-    """
-    model = Sequential(Conv2d(kernel_size=3),
-                        ReLU(),
-                        Conv2d(kernel_size=3, stride=2),
-                        ReLU(),
-                        Conv2d(kernel_size=14, padding=0),  # equivalent to a dense layer
-                    )
-
-    X_test = torch.load(os.getcwd() + "/test/cnn_gp/data/test_kernel_input.pt")
-    K_xx = model(X_test, X_test)
-    K_xx_compare = torch.load(os.getcwd() + "/test/cnn_gp/data/test_kernel_output.pt")
-    assert torch.equal(K_xx, K_xx_compare)
+#     X_test = torch.load(os.getcwd() + "/test/cnn_gp/data/test_kernel_input.pt")
+#     K_xx = model(X_test, X_test)
+#     K_xx_compare = torch.load(os.getcwd() + "/test/cnn_gp/data/test_kernel_output.pt")
+#     assert torch.equal(K_xx, K_xx_compare)
 
 
 def test_batch_sample_creation():
@@ -125,17 +127,132 @@ def test_rho():
     K_xx = model(X_batch, X_batch)
     K_xx = K_xx.detach().numpy()
     sample_matrix = np.matmul(pi_comp, np.matmul(K_xx, np.transpose(pi_comp)))
-    inverse_data = np.linalg.inv(K_xx + 0.0001 * np.identity(K_xx.shape[0]))
-    inverse_sample = np.linalg.inv(sample_matrix + 0.0001 * np.identity(sample_matrix.shape[0]))
+    inverse_data = np.linalg.inv(K_xx + 0.000001 * np.identity(K_xx.shape[0]))
+    inverse_sample = np.linalg.inv(sample_matrix + 0.000001 * np.identity(sample_matrix.shape[0]))
     top = np.matmul(Y_sample.T, np.matmul(inverse_sample, Y_sample))
     bottom = np.matmul(Y_batch.T, np.matmul(inverse_data, Y_batch))
     rho_comp = 1 - np.trace(top)/np.trace(bottom)
     # TODO: Check if a relative tolerance of just 0.01 is acceptable.
     # Pytorch and numpy result in slightly different results due to numerical reasons
     # Is this acceptable?
-    assert np.isclose(rho.detach().numpy(), rho_comp, 1e-2)
+    assert np.isclose(rho.detach().numpy(), rho_comp, 1e-3)
 
 def test_predict():
     """Test if the prediction is done correctly
     """
     pass
+
+def test_rbf():
+    transform = transforms.Compose([transforms.ToTensor()
+                            ])
+
+    batch_size = 10
+    val_size = 100
+
+    # MNIST
+    trainset = datasets.MNIST('MNIST_dataset/train', download=True, train=True, transform=transform)
+    valset = datasets.MNIST('MNIST_dataset/val', download=True, train=False, transform=transform)
+    trainloader = torch.utils.data.DataLoader(trainset, batch_size=batch_size, shuffle=False)
+    valloader = torch.utils.data.DataLoader(valset, batch_size=batch_size, shuffle=False)
+
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
+    dataiter = iter(trainloader)
+    X_train, Y_train = dataiter.next()
+    Y_train = F.one_hot(Y_train, 10)
+
+    dataiter_val = iter(valloader)
+    X_test, Y_test = dataiter_val.next()
+
+    kernel_control = kernel_RBF(matrix_1=torch.flatten(X_train, 1, -1).detach().numpy().squeeze(),
+                            matrix_2=torch.flatten(X_train, 1, -1).detach().numpy().squeeze(),
+                            parameters=np.array([4.0]))
+    rbf_kernel = RBF_Kernel(parameters=4.0)
+    kernel_test = rbf_kernel(matrix_1=torch.flatten(X_train, 1, -1), matrix_2=torch.flatten(X_train, 1, -1))
+    print(kernel_test.detach().numpy() - kernel_control)
+    assert np.all(np.isclose(kernel_test.detach().numpy(), kernel_control))
+
+
+def test_blocked_kernel_eval_square_result():
+    """Test if blocked kernel evaluation results in the same result as a complete evaluation
+    """
+    X = torch.rand((100, 1, 28, 28))
+    Y = torch.rand((100, 10))
+
+    model_untrained = Sequential(
+        Conv2d(kernel_size=3),
+        ReLU(),
+        Conv2d(kernel_size=3, stride=2),
+        ReLU(),
+        Conv2d(kernel_size=14, padding=0),  # equivalent to a dense layer
+        )
+
+    # Complete Kernel
+    k_full = model_untrained(X, X).detach().numpy()
+
+    # Blockwise Kernel
+    k_blocked = KernelFlowsCNNGP._block_kernel_eval(X=X,
+                                                    Y=X,
+                                                    blocksize=25,
+                                                    kernel=model_untrained)
+
+    assert np.all(np.equal(k_full, k_blocked))
+
+def test_blocked_kernel_eval_rec_result():
+    """Test if blocked kernel evaluation with remainder answer results in the same result as a complete evaluation
+    """
+    X = torch.rand((200, 1, 28, 28))
+    Y = torch.rand((200, 10))
+
+    model_untrained = Sequential(
+        Conv2d(kernel_size=3),
+        ReLU(),
+        Conv2d(kernel_size=3, stride=2),
+        ReLU(),
+        Conv2d(kernel_size=14, padding=0),  # equivalent to a dense layer
+        )
+
+    # Complete Kernel
+    k_full = model_untrained(X[:125], X[:125]).detach().numpy()
+
+    # Blockwise Kernel
+    k_blocked = KernelFlowsCNNGP._block_kernel_eval(X=X[:125],
+                                                    Y=X[:125],
+                                                    blocksize=50,
+                                                    kernel=model_untrained)
+
+    assert np.all(np.equal(k_full, k_blocked))
+
+    # Complete Kernel
+    k_full = model_untrained(X[:120], X[:125]).detach().numpy()
+
+    # Blockwise Kernel
+    k_blocked = KernelFlowsCNNGP._block_kernel_eval(X=X[:120],
+                                                    Y=X[:125],
+                                                    blocksize=50,
+                                                    kernel=model_untrained)
+
+    assert np.all(np.equal(k_full, k_blocked))
+
+    # Complete Kernel
+    k_full = model_untrained(X[:116], X[:110]).detach().numpy()
+
+    # Blockwise Kernel
+    k_blocked = KernelFlowsCNNGP._block_kernel_eval(X=X[:116],
+                                                    Y=X[:110],
+                                                    blocksize=50,
+                                                    kernel=model_untrained)
+
+    assert np.all(np.equal(k_full, k_blocked))
+
+    # Complete Kernel
+    k_full = model_untrained(X[:125], X[:125]).detach().numpy()
+
+    # Blockwise Kernel
+    k_blocked = KernelFlowsCNNGP._block_kernel_eval(X=X[:125],
+                                                    Y=X[:125],
+                                                    blocksize=100,
+                                                    kernel=model_untrained)
+
+    assert np.all(np.equal(k_full, k_blocked))
+
