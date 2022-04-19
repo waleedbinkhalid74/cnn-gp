@@ -201,8 +201,8 @@ def test_blocked_kernel_eval_square_result():
 def test_blocked_kernel_eval_rec_result():
     """Test if blocked kernel evaluation with remainder answer results in the same result as a complete evaluation
     """
-    X = torch.rand((200, 1, 28, 28))
-    Y = torch.rand((200, 10))
+    X = torch.rand((5000, 1, 28, 28))
+    Y = torch.rand((5000, 10))
 
     model_untrained = Sequential(
         Conv2d(kernel_size=3),
@@ -251,6 +251,17 @@ def test_blocked_kernel_eval_rec_result():
     # Blockwise Kernel
     k_blocked = KernelFlowsCNNGP._block_kernel_eval(X=X[:125],
                                                     Y=X[:125],
+                                                    blocksize=100,
+                                                    kernel=model_untrained)
+
+    assert np.all(np.equal(k_full, k_blocked))
+
+    # Complete Kernel
+    k_full = model_untrained(X[:1000], X[:100]).detach().numpy()
+
+    # Blockwise Kernel
+    k_blocked = KernelFlowsCNNGP._block_kernel_eval(X=X[:1000],
+                                                    Y=X[:100],
                                                     blocksize=100,
                                                     kernel=model_untrained)
 

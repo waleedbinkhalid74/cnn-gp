@@ -1,8 +1,9 @@
+import os
 from pickletools import optimize
 from typing import Tuple
 import warnings
 
-import scipy
+from scipy.linalg import lstsq
 from cnn_gp import NNGPKernel
 import torch
 import torch.nn as nn
@@ -180,13 +181,13 @@ class KernelFlowsCNNGP():
             np.ndarray: Evaluated kernel result
         """
         kernel.eval()
-        blocks_horizontal = X.shape[0] // blocksize
-        blocks_vertical = Y.shape[0] // blocksize
+        blocks_vertical = X.shape[0] // blocksize
+        blocks_horizontal = Y.shape[0] // blocksize
         remainder_vertical = X.shape[0] - blocks_vertical*blocksize
         remainder_horizontal = Y.shape[0] - blocks_horizontal*blocksize
         block_horizontal  = 0
         k_matrix = np.ones((X.shape[0], Y.shape[0]), dtype=float)
-        for block_vertical in range(blocks_vertical):
+        for block_vertical in tqdm(range(blocks_vertical)):
             X_batch_train_vertical = X[block_vertical*blocksize:(block_vertical+1)*blocksize]
             for block_horizontal in range(blocks_horizontal):
                 Y_batch_train_horizontal = Y[block_horizontal*blocksize:(block_horizontal+1)*blocksize]
@@ -216,7 +217,7 @@ class KernelFlowsCNNGP():
     @staticmethod
     def kernel_regression(X_test: torch.Tensor, X_train: torch.Tensor,
                           Y_train: torch.Tensor, kernel: nn.Module, regularization_lambda = 0.0001,
-                          blocksize: int = False) -> np.ndarray:
+                          blocksize: int = False, save_kernel: str = False) -> np.ndarray:
         """Applies Kernel regression to provided data
 
         Args:
@@ -258,9 +259,13 @@ class KernelFlowsCNNGP():
                                                         blocksize=blocksize,
                                                         kernel=kernel)
 
+        if save_kernel:
+            np.save(os.getcwd() + '/saved_kernels/' + save_kernel + '_k_matrix.npy', k_matrix)
+            np.save(os.getcwd() + '/saved_kernels/' + save_kernel + '_t_matrix.npy', t_matrix)
+
 #########################VERIFY - REPLACING INVERSE WITH LEAST SQ AS PER MARTIN FOR NUMERICAL REASONS##################################
-        # prediction = torch.matmul(t_matrix, torch.matmul(torch.linalg.inv(k_matrix), Y_train))
-        k_inv_Y, _, _, _ = scipy.linalg.lstsq(k_matrix, Y_train.detach().numpy(), cond=1e-8)
+        # prediction = np.matmul(t_matrix, np.matmul(np.linalg.inv(k_matrix), Y_train))
+        k_inv_Y, _, _, _ = lstsq(k_matrix, Y_train.detach().numpy(), cond=1e-8)
         prediction_lstsq = np.matmul(t_matrix, k_inv_Y)
 
 #########################VERIFY - REPLACING INVERSE WITH LEAST SQ AS PER MARTIN FOR NUMERICAL REASONS##################################
@@ -312,7 +317,7 @@ class KernelFlowsCNNGP():
         # Calculation of two kernels is expensive so we use proposition 3.2 Owhadi 2018
         # rho = 1 - trace(Y_s^T * (pi_mat * K(X_b, X_b)^-1 pi_mat^T) * Y_s) / trace(Y_b^T K(X_b, X_b)^-1 Y_b)
 
-        # Calculate kernel theta = Kernel(X_Nf, X_Nf)
+        # Calculate kernel theta = Kernel(X_Nf, X_Nf). NOTE: This is the most expensive step of the algorithm
         theta = self.cnn_gp_kernel(X_batch, X_batch)
 
         # Calculate sample_matrix = pi_mat*theta*pi_mat^T

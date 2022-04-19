@@ -2,6 +2,7 @@
 *dataset*
 *.ipynb
 .vscode/
+saved_kernels/
 
 !CNN_GP_Memory.ipynb
 models/
