@@ -188,7 +188,7 @@ def test_blocked_kernel_eval_square_result():
         )
 
     # Complete Kernel
-    k_full = model_untrained(X, X)
+    k_full = model_untrained(X, X).detach().numpy()
 
     # Blockwise Kernel
     k_blocked = KernelFlowsCNNGP._block_kernel_eval(X=X,
@@ -196,7 +196,7 @@ def test_blocked_kernel_eval_square_result():
                                                     blocksize=25,
                                                     kernel=model_untrained)
 
-    assert torch.equal(k_full, k_blocked)
+    assert np.all(np.equal(k_full, k_blocked))
 
 def test_blocked_kernel_eval_rec_result():
     """Test if blocked kernel evaluation with remainder answer results in the same result as a complete evaluation
@@ -213,7 +213,7 @@ def test_blocked_kernel_eval_rec_result():
         )
 
     # Complete Kernel
-    k_full = model_untrained(X[:125], X[:125])
+    k_full = model_untrained(X[:125], X[:125]).detach().numpy()
 
     # Blockwise Kernel
     k_blocked = KernelFlowsCNNGP._block_kernel_eval(X=X[:125],
@@ -221,10 +221,10 @@ def test_blocked_kernel_eval_rec_result():
                                                     blocksize=50,
                                                     kernel=model_untrained)
 
-    assert torch.equal(k_full, k_blocked)
+    assert np.all(np.equal(k_full, k_blocked))
 
     # Complete Kernel
-    k_full = model_untrained(X[:120], X[:125])
+    k_full = model_untrained(X[:120], X[:125]).detach().numpy()
 
     # Blockwise Kernel
     k_blocked = KernelFlowsCNNGP._block_kernel_eval(X=X[:120],
@@ -232,10 +232,10 @@ def test_blocked_kernel_eval_rec_result():
                                                     blocksize=50,
                                                     kernel=model_untrained)
 
-    assert torch.equal(k_full, k_blocked)
+    assert np.all(np.equal(k_full, k_blocked))
 
     # Complete Kernel
-    k_full = model_untrained(X[:116], X[:110])
+    k_full = model_untrained(X[:116], X[:110]).detach().numpy()
 
     # Blockwise Kernel
     k_blocked = KernelFlowsCNNGP._block_kernel_eval(X=X[:116],
@@ -243,5 +243,16 @@ def test_blocked_kernel_eval_rec_result():
                                                     blocksize=50,
                                                     kernel=model_untrained)
 
-    assert torch.equal(k_full, k_blocked)
+    assert np.all(np.equal(k_full, k_blocked))
+
+    # Complete Kernel
+    k_full = model_untrained(X[:125], X[:125]).detach().numpy()
+
+    # Blockwise Kernel
+    k_blocked = KernelFlowsCNNGP._block_kernel_eval(X=X[:125],
+                                                    Y=X[:125],
+                                                    blocksize=100,
+                                                    kernel=model_untrained)
+
+    assert np.all(np.equal(k_full, k_blocked))
 

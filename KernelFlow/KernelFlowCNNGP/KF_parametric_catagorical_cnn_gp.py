@@ -1,6 +1,8 @@
 from pickletools import optimize
 from typing import Tuple
 import warnings
+
+import scipy
 from cnn_gp import NNGPKernel
 import torch
 import torch.nn as nn
@@ -154,7 +156,7 @@ class KernelFlowsCNNGP():
 
 
     @staticmethod
-    def _block_kernel_eval(X: torch.Tensor, Y: torch.Tensor, blocksize: int, kernel: nn.Module) -> torch.Tensor:
+    def _block_kernel_eval(X: torch.Tensor, Y: torch.Tensor, blocksize: int, kernel: nn.Module) -> np.ndarray:
         """Evaluates the kernel matrix using a block wise evaluation approach. First the blocks are evaluated where the horizontal remainders (rh) are calculated in the same loop.
         The vertical remainders (rv) are evaluated in a separate loop.
         ---------------------
@@ -175,16 +177,16 @@ class KernelFlowsCNNGP():
             kernel (nn.Module): Callable function that evaluates the kernel
 
         Returns:
-            torch.Tensor: Evaluated kernel result
+            np.ndarray: Evaluated kernel result
         """
         kernel.eval()
         blocks_horizontal = X.shape[0] // blocksize
         blocks_vertical = Y.shape[0] // blocksize
         remainder_vertical = X.shape[0] - blocks_vertical*blocksize
         remainder_horizontal = Y.shape[0] - blocks_horizontal*blocksize
-
+        block_horizontal  = 0
         k_matrix = np.ones((X.shape[0], Y.shape[0]), dtype=float)
-        for block_vertical in tqdm(range(blocks_vertical)):
+        for block_vertical in range(blocks_vertical):
             X_batch_train_vertical = X[block_vertical*blocksize:(block_vertical+1)*blocksize]
             for block_horizontal in range(blocks_horizontal):
                 Y_batch_train_horizontal = Y[block_horizontal*blocksize:(block_horizontal+1)*blocksize]
@@ -214,7 +216,7 @@ class KernelFlowsCNNGP():
     @staticmethod
     def kernel_regression(X_test: torch.Tensor, X_train: torch.Tensor,
                           Y_train: torch.Tensor, kernel: nn.Module, regularization_lambda = 0.0001,
-                          blocksize: int = False) -> torch.Tensor:
+                          blocksize: int = False) -> np.ndarray:
         """Applies Kernel regression to provided data
 
         Args:
@@ -226,40 +228,40 @@ class KernelFlowsCNNGP():
             blocksize (int, optional): Number of elements in each block. Defaults to False.
 
         Returns:
-            torch.Tensor: Prediction result
+            np.ndarray: Prediction result
         """
 
         if blocksize is False:
             k_matrix = kernel(X_train, X_train).detach().numpy()
             k_matrix += regularization_lambda * np.eye(k_matrix.shape[0])
             t_matrix = kernel(X_test, X_train).detach().numpy()
-            prediction = torch.matmul(t_matrix, torch.matmul(torch.linalg.inv(k_matrix), Y_train))
-            print("Condition numbers of k_matrix and t_matrix are: ", torch.linalg.cond(k_matrix), torch.linalg.cond(t_matrix))
-            return prediction#, k_matrix, t_matrix
+            prediction = np.matmul(t_matrix, np.matmul(np.linalg.inv(k_matrix), Y_train.detach().numpy()))
+            return prediction
+        elif blocksize > X_train.shape[0] or blocksize > Y_train.shape[0]:
+            raise ValueError("Blocksize must be smaller or equal to the size of the input")
 
 
 
         # matrix block evaluation
-        k_matrix = torch.ones((X_train.shape[0], X_train.shape[0]), dtype=torch.float32)
-        t_matrix = torch.ones((X_test.shape[0], X_train.shape[0]), dtype=torch.float32)
+        k_matrix = np.ones((X_train.shape[0], X_train.shape[0]), dtype=float)
+        t_matrix = np.ones((X_test.shape[0], X_train.shape[0]), dtype=float)
 
         k_matrix = KernelFlowsCNNGP._block_kernel_eval(X=X_train,
                                                         Y=X_train,
                                                         blocksize=blocksize,
                                                         kernel=kernel)
 
-        k_matrix += regularization_lambda * torch.eye(k_matrix.shape[0])
+        k_matrix += regularization_lambda * np.eye(k_matrix.shape[0])
 
         t_matrix = KernelFlowsCNNGP._block_kernel_eval(X=X_test,
                                                         Y=X_train,
                                                         blocksize=blocksize,
                                                         kernel=kernel)
 
-        print("Condition numbers of k_matrix and t_matrix are: ", torch.linalg.cond(k_matrix), torch.linalg.cond(t_matrix))
 #########################VERIFY - REPLACING INVERSE WITH LEAST SQ AS PER MARTIN FOR NUMERICAL REASONS##################################
         # prediction = torch.matmul(t_matrix, torch.matmul(torch.linalg.inv(k_matrix), Y_train))
-        k_inv_Y, _, _, _ = torch.linalg.lstsq(k_matrix, Y_train, rcond=1e-8)
-        prediction_lstsq = torch.matmul(t_matrix, k_inv_Y)
+        k_inv_Y, _, _, _ = scipy.linalg.lstsq(k_matrix, Y_train.detach().numpy(), cond=1e-8)
+        prediction_lstsq = np.matmul(t_matrix, k_inv_Y)
 
 #########################VERIFY - REPLACING INVERSE WITH LEAST SQ AS PER MARTIN FOR NUMERICAL REASONS##################################
         return prediction_lstsq#, k_matrix, t_matrix
