@@ -77,10 +77,10 @@ class Conv2d(NNGPKernel):
             self.padding = padding
 
     ###########################REMOVED KERNEL CALCULATION AND ADDED VARIANCES AS TRAINABLE PARAMETERS###########################
-        weight_var = nn.Parameter(t.Tensor([var_weight]))
-        self.register_parameter('var_weight', weight_var)
-        bias_var = nn.Parameter(t.Tensor([var_bias]))
-        self.register_parameter('var_bias', bias_var)
+        self.var_weight = nn.Parameter(t.Tensor([var_weight]))
+        # self.register_parameter('var_weight', weight_var)
+        self.var_bias = nn.Parameter(t.Tensor([var_bias]))
+        # self.register_parameter('var_bias', bias_var)
 
         # if self.kernel_has_row_of_zeros:
         #     # We need to pad one side larger than the other. We just make a
@@ -168,19 +168,27 @@ class ReLU(NNGPKernel):
         # Clamp these so the outputs are not NaN
         # Use small eps to avoid NaN during backpropagation
         eps = 1e-6
-        ###########################MADE RECIPROCAL SQRT NUMERICALLY STABLE###########################
-        # TODO: Check with Prof if this is ok to do
-        inverse_sqrt_xx_yy = 1 / (t.sqrt(xx_yy) + eps)
-        cos_theta = (kp.xy * inverse_sqrt_xx_yy).clamp(-1+eps, 1-eps)
-        # cos_theta = (kp.xy * xx_yy.rsqrt()).clamp(-1+eps, 1-eps)
-        ###########################MADE RECIPROCAL SQRT NUMERICALLY STABLE###########################
+        ###########################COMBINE ALL IN ONE LINE###########################
 
-        sin_theta = t.sqrt((xx_yy - kp.xy**2).clamp(min=eps))
+        # ###########################MADE RECIPROCAL SQRT NUMERICALLY STABLE###########################
+        # # TODO: Check with Prof if this is ok to do
+        # inverse_sqrt_xx_yy = 1 / (t.sqrt(xx_yy) + eps)
+        # cos_theta = (kp.xy * inverse_sqrt_xx_yy).clamp(-1+eps, 1-eps)
+        # # cos_theta = (kp.xy * xx_yy.rsqrt()).clamp(-1+eps, 1-eps)
+        # ###########################MADE RECIPROCAL SQRT NUMERICALLY STABLE###########################
 
-        # cos_theta = (kp.xy * xx_yy.rsqrt()).clamp(-1, 1)
-        # sin_theta = t.sqrt((xx_yy - kp.xy**2).clamp(min=0))
-        theta = t.acos(cos_theta)
-        xy = (sin_theta + (math.pi - theta)*kp.xy) / (2*math.pi)
+        # sin_theta = t.sqrt((xx_yy - kp.xy**2).clamp(min=eps))
+
+        # # cos_theta = (kp.xy * xx_yy.rsqrt()).clamp(-1, 1)
+        # # sin_theta = t.sqrt((xx_yy - kp.xy**2).clamp(min=0))
+        # theta = t.acos(cos_theta)
+        # xy = (sin_theta + (math.pi - theta)*kp.xy) / (2*math.pi)
+
+        # NOTE: Temporary variables were consuming memory due to large tensor sizes. This however still does not solve the problem during the backward pass.
+        # NOTE: Replaced t.rsqrt with 1 / (t.sqrt(xx_yy) + eps) for numerical stability.
+        xy = (t.sqrt((xx_yy - kp.xy**2).clamp(min=eps)) + (math.pi - t.acos( (kp.xy *  1 / (t.sqrt(xx_yy) + eps)).clamp(-1+eps, 1-eps)))*kp.xy) / (2*math.pi)
+
+        ###########################COMBINE ALL IN ONE LINE###########################
 
         xx = kp.xx/2.
         if kp.same:
