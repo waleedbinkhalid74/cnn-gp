@@ -180,37 +180,38 @@ class KernelFlowsCNNGP():
         Returns:
             np.ndarray: Evaluated kernel result
         """
-        kernel.eval()
-        blocks_vertical = X.shape[0] // blocksize
-        blocks_horizontal = Y.shape[0] // blocksize
-        remainder_vertical = X.shape[0] - blocks_vertical*blocksize
-        remainder_horizontal = Y.shape[0] - blocks_horizontal*blocksize
-        block_horizontal  = 0
-        k_matrix = np.ones((X.shape[0], Y.shape[0]), dtype=float)
-        for block_vertical in tqdm(range(blocks_vertical)):
-            X_batch_train_vertical = X[block_vertical*blocksize:(block_vertical+1)*blocksize]
-            for block_horizontal in range(blocks_horizontal):
-                Y_batch_train_horizontal = Y[block_horizontal*blocksize:(block_horizontal+1)*blocksize]
-                k_matrix_batch = kernel(X_batch_train_vertical, Y_batch_train_horizontal)
-                k_matrix[block_vertical*blocksize:(block_vertical+1)*blocksize, block_horizontal*blocksize:(block_horizontal+1)*blocksize] = k_matrix_batch.detach().numpy()
-                del k_matrix_batch, Y_batch_train_horizontal
-            # Handling horizontal remainders
-            if remainder_horizontal > 0:
-                Y_batch_train_horizontal = Y[(block_horizontal+1)*blocksize:(block_horizontal+1)*blocksize + remainder_horizontal]
-                k_matrix_batch = kernel(X_batch_train_vertical, Y_batch_train_horizontal)
-                k_matrix[block_vertical*blocksize:(block_vertical+1)*blocksize, (block_horizontal+1)*blocksize:(block_horizontal+1)*blocksize + remainder_horizontal] = k_matrix_batch.detach().numpy()
+        with torch.no_grad():
+            kernel.eval()
+            blocks_vertical = X.shape[0] // blocksize
+            blocks_horizontal = Y.shape[0] // blocksize
+            remainder_vertical = X.shape[0] - blocks_vertical*blocksize
+            remainder_horizontal = Y.shape[0] - blocks_horizontal*blocksize
+            block_horizontal  = 0
+            k_matrix = np.ones((X.shape[0], Y.shape[0]), dtype=float)
+            for block_vertical in tqdm(range(blocks_vertical)):
+                X_batch_train_vertical = X[block_vertical*blocksize:(block_vertical+1)*blocksize]
+                for block_horizontal in range(blocks_horizontal):
+                    Y_batch_train_horizontal = Y[block_horizontal*blocksize:(block_horizontal+1)*blocksize]
+                    k_matrix_batch = kernel(X_batch_train_vertical, Y_batch_train_horizontal)
+                    k_matrix[block_vertical*blocksize:(block_vertical+1)*blocksize, block_horizontal*blocksize:(block_horizontal+1)*blocksize] = k_matrix_batch.detach().numpy()
+                    del k_matrix_batch, Y_batch_train_horizontal
+                # Handling horizontal remainders
+                if remainder_horizontal > 0:
+                    Y_batch_train_horizontal = Y[(block_horizontal+1)*blocksize:(block_horizontal+1)*blocksize + remainder_horizontal]
+                    k_matrix_batch = kernel(X_batch_train_vertical, Y_batch_train_horizontal)
+                    k_matrix[block_vertical*blocksize:(block_vertical+1)*blocksize, (block_horizontal+1)*blocksize:(block_horizontal+1)*blocksize + remainder_horizontal] = k_matrix_batch.detach().numpy()
 
-        # Evaluating vertical remainder blocks rv
-        if remainder_vertical > 0:
-            X_batch_train_vertical = X[(block_vertical+1)*blocksize:(block_vertical+1)*blocksize + remainder_vertical]
-            for block_horizontal in range(blocks_horizontal):
-                Y_batch_train_horizontal = Y[block_horizontal*blocksize:(block_horizontal+1)*blocksize]
-                k_matrix_batch = kernel(X_batch_train_vertical, Y_batch_train_horizontal)
-                k_matrix[(block_vertical+1)*blocksize:(block_vertical+1)*blocksize + remainder_vertical, block_horizontal*blocksize:(block_horizontal+1)*blocksize] = k_matrix_batch.detach().numpy()
-            if remainder_horizontal > 0:
-                Y_batch_train_horizontal = Y[(block_horizontal+1)*blocksize:(block_horizontal+1)*blocksize + remainder_horizontal]
-                k_matrix_batch = kernel(X_batch_train_vertical, Y_batch_train_horizontal)
-                k_matrix[(block_vertical+1)*blocksize:(block_vertical+1)*blocksize + remainder_vertical, (block_horizontal+1)*blocksize:(block_horizontal+1)*blocksize + remainder_horizontal] = k_matrix_batch.detach().numpy()
+            # Evaluating vertical remainder blocks rv
+            if remainder_vertical > 0:
+                X_batch_train_vertical = X[(block_vertical+1)*blocksize:(block_vertical+1)*blocksize + remainder_vertical]
+                for block_horizontal in range(blocks_horizontal):
+                    Y_batch_train_horizontal = Y[block_horizontal*blocksize:(block_horizontal+1)*blocksize]
+                    k_matrix_batch = kernel(X_batch_train_vertical, Y_batch_train_horizontal)
+                    k_matrix[(block_vertical+1)*blocksize:(block_vertical+1)*blocksize + remainder_vertical, block_horizontal*blocksize:(block_horizontal+1)*blocksize] = k_matrix_batch.detach().numpy()
+                if remainder_horizontal > 0:
+                    Y_batch_train_horizontal = Y[(block_horizontal+1)*blocksize:(block_horizontal+1)*blocksize + remainder_horizontal]
+                    k_matrix_batch = kernel(X_batch_train_vertical, Y_batch_train_horizontal)
+                    k_matrix[(block_vertical+1)*blocksize:(block_vertical+1)*blocksize + remainder_vertical, (block_horizontal+1)*blocksize:(block_horizontal+1)*blocksize + remainder_horizontal] = k_matrix_batch.detach().numpy()
 
         return k_matrix
 
@@ -232,11 +233,13 @@ class KernelFlowsCNNGP():
             np.ndarray: Prediction result
         """
 
+
         if blocksize is False:
-            k_matrix = kernel(X_train, X_train).detach().numpy()
-            k_matrix += regularization_lambda * np.eye(k_matrix.shape[0])
-            t_matrix = kernel(X_test, X_train).detach().numpy()
-            prediction = np.matmul(t_matrix, np.matmul(np.linalg.inv(k_matrix), Y_train.detach().numpy()))
+            with torch.no_grad():
+                k_matrix = kernel(X_train, X_train).detach().numpy()
+                k_matrix += regularization_lambda * np.eye(k_matrix.shape[0])
+                t_matrix = kernel(X_test, X_train).detach().numpy()
+                prediction = np.matmul(t_matrix, np.matmul(np.linalg.inv(k_matrix), Y_train.detach().numpy()))
             return prediction
         elif blocksize > X_train.shape[0] or blocksize > Y_train.shape[0]:
             raise ValueError("Blocksize must be smaller or equal to the size of the input")

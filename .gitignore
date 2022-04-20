@@ -3,6 +3,7 @@
 *.ipynb
 .vscode/
 saved_kernels/
+profiling/
 
 !CNN_GP_Memory.ipynb
 models/
