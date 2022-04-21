@@ -168,27 +168,19 @@ class ReLU(NNGPKernel):
         # Clamp these so the outputs are not NaN
         # Use small eps to avoid NaN during backpropagation
         eps = 1e-6
-        ###########################COMBINE ALL IN ONE LINE###########################
+        ###########################MADE RECIPROCAL SQRT NUMERICALLY STABLE###########################
+        # TODO: Check with Prof if this is ok to do
+        inverse_sqrt_xx_yy = 1 / (t.sqrt(xx_yy) + eps)
+        cos_theta = (kp.xy * inverse_sqrt_xx_yy).clamp(-1+eps, 1-eps)
+        # cos_theta = (kp.xy * xx_yy.rsqrt()).clamp(-1+eps, 1-eps)
+        ###########################MADE RECIPROCAL SQRT NUMERICALLY STABLE###########################
 
-        # ###########################MADE RECIPROCAL SQRT NUMERICALLY STABLE###########################
-        # # TODO: Check with Prof if this is ok to do
-        # inverse_sqrt_xx_yy = 1 / (t.sqrt(xx_yy) + eps)
-        # cos_theta = (kp.xy * inverse_sqrt_xx_yy).clamp(-1+eps, 1-eps)
-        # # cos_theta = (kp.xy * xx_yy.rsqrt()).clamp(-1+eps, 1-eps)
-        # ###########################MADE RECIPROCAL SQRT NUMERICALLY STABLE###########################
+        sin_theta = t.sqrt((xx_yy - kp.xy**2).clamp(min=eps))
 
-        # sin_theta = t.sqrt((xx_yy - kp.xy**2).clamp(min=eps))
-
-        # # cos_theta = (kp.xy * xx_yy.rsqrt()).clamp(-1, 1)
-        # # sin_theta = t.sqrt((xx_yy - kp.xy**2).clamp(min=0))
-        # theta = t.acos(cos_theta)
-        # xy = (sin_theta + (math.pi - theta)*kp.xy) / (2*math.pi)
-
-        # NOTE: Temporary variables were consuming memory due to large tensor sizes. This however still does not solve the problem during the backward pass.
-        # NOTE: Replaced t.rsqrt with 1 / (t.sqrt(xx_yy) + eps) for numerical stability.
-        xy = (t.sqrt((xx_yy - kp.xy**2).clamp(min=eps)) + (math.pi - t.acos( (kp.xy *  1 / (t.sqrt(xx_yy) + eps)).clamp(-1+eps, 1-eps)))*kp.xy) / (2*math.pi)
-
-        ###########################COMBINE ALL IN ONE LINE###########################
+        # cos_theta = (kp.xy * xx_yy.rsqrt()).clamp(-1, 1)
+        # sin_theta = t.sqrt((xx_yy - kp.xy**2).clamp(min=0))
+        theta = t.acos(cos_theta)
+        xy = (sin_theta + (math.pi - theta)*kp.xy) / (2*math.pi)
 
         xx = kp.xx/2.
         if kp.same:

@@ -400,6 +400,8 @@ class KernelFlowsCNNGP():
             # Calculate pi matrix
             pi_matrix = KernelFlowsCNNGP.pi_matrix(sample_indices=sample_indices, dimension=(N_c, N_f))
 
+            optimizer.zero_grad()
+
             # Calculate rho
             rho = self.rho(X_batch=X_batch, Y_batch=Y_batch, Y_sample=Y_sample, pi_matrix=pi_matrix)
             if  rho > 1.01 or rho < -0.1:
@@ -409,7 +411,6 @@ class KernelFlowsCNNGP():
             if torch.isnan(rho):
                 raise ValueError("rho is NaN!")
             # Calculate gradients
-            optimizer.zero_grad()
             rho.backward()
 
             # Optimization step
