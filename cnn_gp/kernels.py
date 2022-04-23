@@ -34,8 +34,8 @@ class NNGPKernel(nn.Module):
         assert x.size(2) == y.size(2)
         assert x.size(3) == y.size(3)
 
-        N1 = x.size(0)
-        N2 = y.size(0)
+        self.N1 = x.size(0)
+        self.N2 = y.size(0)
         C = x.size(1)
         W = x.size(2)
         H = x.size(3)
@@ -44,7 +44,7 @@ class NNGPKernel(nn.Module):
         if diag:
             xy = (x*y).mean(1, keepdim=True)
         else:
-            xy = (x.unsqueeze(1)*y).mean(2).view(N1*N2, 1, W, H)
+            xy = (x.unsqueeze(1)*y).mean(2).view(self.N1*self.N2, 1, W, H)
         xx = (x**2).mean(1, keepdim=True)
         yy = (y**2).mean(1, keepdim=True)
 
@@ -52,10 +52,21 @@ class NNGPKernel(nn.Module):
         final_kp = self.propagate(initial_kp)
         r = NonlinKP(final_kp).xy
         if diag:
-            return r.view(N1)
+            return r.view(self.N1)
         else:
-            return r.view(N1, N2)
+            return r.view(self.N1, self.N2)
 
+    def backprop(self, diag=False):
+            gradient_list = []
+            gradient_list = self.backward_pass(gradient_list)
+            grads = []
+            for result in gradient_list:
+                r = NonlinKP(result).xy
+                if diag:
+                    grads.append(r.view(self.N1).detach().numpy())
+                else:
+                    grads.append(r.view(self.N1, self.N2).detach().numpy())
+            return np.array(grads)
 
 class Conv2d(NNGPKernel):
     def __init__(self, kernel_size, stride=1, padding="same", dilation=1,
@@ -65,6 +76,7 @@ class Conv2d(NNGPKernel):
         self.kernel_size = kernel_size
         self.stride = stride
         self.dilation = dilation
+        self.kp = None
         # Not needed as they will be registered separately as parameters
         # self.var_weight = var_weight
         # self.var_bias = var_bias
@@ -76,46 +88,52 @@ class Conv2d(NNGPKernel):
         else:
             self.padding = padding
 
-    ###########################REMOVED KERNEL CALCULATION AND ADDED VARIANCES AS TRAINABLE PARAMETERS###########################
         self.var_weight = nn.Parameter(t.Tensor([var_weight]))
-        # self.register_parameter('var_weight', weight_var)
         self.var_bias = nn.Parameter(t.Tensor([var_bias]))
-        # self.register_parameter('var_bias', bias_var)
 
-        # if self.kernel_has_row_of_zeros:
-        #     # We need to pad one side larger than the other. We just make a
-        #     # kernel that is slightly too large and make its last column and
-        #     # row zeros.
-        #     kernel = t.ones(1, 1, self.kernel_size+1, self.kernel_size+1)
-        #     kernel[:, :, 0, :] = 0.
-        #     kernel[:, :, :, 0] = 0.
-        # else:
-        #     kernel = t.ones(1, 1, self.kernel_size, self.kernel_size)
-        # self.register_buffer('kernel', kernel
-        #                      * (self.var_weight / self.kernel_size**2))
-        ###########################REMOVED KERNEL CALCULATION AND ADDED VARIANCES AS TRAINABLE PARAMETERS###########################
+        if self.kernel_has_row_of_zeros:
+            # We need to pad one side larger than the other. We just make a
+            # kernel that is slightly too large and make its last column and
+            # row zeros.
+            self.kernel = t.ones(1, 1, self.kernel_size+1, self.kernel_size+1)
+            self.kernel[:, :, 0, :] = 0.
+            self.kernel[:, :, :, 0] = 0.
+        else:
+            self.kernel = t.ones(1, 1, self.kernel_size, self.kernel_size)
         self.in_channel_multiplier, self.out_channel_multiplier = (
             in_channel_multiplier, out_channel_multiplier)
 
     def propagate(self, kp):
         kp = ConvKP(kp)
+        # NOTE: Only collect data otherwise autograd computational graph will also be saved which is memory intensive
+        # This will be used in our custom backward pass
+        self.kp = ConvKP(kp.same, kp.diag, kp.xy.data, kp.xx.data, kp.yy.data)
         ###########################ADDED CALCULATION OF KERNEL FROM TRAINABLE VARIANCES###########################
-        if self.kernel_has_row_of_zeros:
-            # We need to pad one side larger than the other. We just make a
-            # kernel that is slightly too large and make its last column and
-            # row zeros.
-            kernel = t.ones(1, 1, self.kernel_size+1, self.kernel_size+1)
-            kernel[:, :, 0, :] = 0.
-            kernel[:, :, :, 0] = 0.
-        else:
-            kernel = t.ones(1, 1, self.kernel_size, self.kernel_size)
-        kernel = kernel * (self.var_weight / self.kernel_size**2)
+        kernel = self.kernel * (self.var_weight / self.kernel_size**2)
         ###########################ADDED CALCULATION OF KERNEL FROM TRAINABLE VARIANCES###########################
         def f(patch):
             return (F.conv2d(patch, kernel, stride=self.stride, # CHANGE self.kernel to kernel
                              padding=self.padding, dilation=self.dilation)
                     + self.var_bias)
+
         return ConvKP(kp.same, kp.diag, f(kp.xy), f(kp.xx), f(kp.yy))
+
+    @t.no_grad() # Ensure no gradients are tracked otherwise memory blowsup
+    def backward_pass(self, gradient_list):
+        if self.kp is None:
+            raise Exception("Forward pass required before backward pass can be computed. Please evaluate a Kernel first.")
+
+        kernel = self.kernel * (1.0 / self.kernel_size**2)
+        xy_weight = F.conv2d(self.kp.xy, kernel, stride=self.stride, padding=self.padding, dilation=self.dilation)
+        xx_weight = F.conv2d(self.kp.xx, kernel, stride=self.stride, padding=self.padding, dilation=self.dilation)
+        yy_weight = F.conv2d(self.kp.yy, kernel, stride=self.stride, padding=self.padding, dilation=self.dilation)
+        xy_bias = t.ones(xy_weight.shape)
+        xx_bias = t.ones(xx_weight.shape)
+        yy_bias = t.ones(yy_weight.shape)
+        gradient_list.append(ConvKP(self.kp.same, self.kp.diag, xy_weight, xx_weight, yy_weight))
+        gradient_list.append(ConvKP(self.kp.same, self.kp.diag, xy_bias, xx_bias, yy_bias))
+
+        return gradient_list
 
     def nn(self, channels, in_channels=None, out_channels=None):
         if in_channels is None:
@@ -153,6 +171,9 @@ class ReLU(NNGPKernel):
     f32_tiny = np.finfo(np.float32).tiny
     def propagate(self, kp):
         kp = NonlinKP(kp)
+        # NOTE: Only collect data otherwise autograd computational graph will also be saved which is memory intensive
+        # This will be used in our custom backward pass
+        self.kp = NonlinKP(kp.same, kp.diag, kp.xy.data, kp.xx.data, kp.yy.data)
         """
         We need to calculate (xy, xx, yy == c, v₁, v₂):
                       ⏤⏤⏤⏤⏤⏤⏤⏤⏤⏤⏤⏤⏤⏤⏤⏤⏤⏤
@@ -195,6 +216,42 @@ class ReLU(NNGPKernel):
             yy = kp.yy/2.
         return NonlinKP(kp.same, kp.diag, xy, xx, yy)
 
+    @t.no_grad() # Ensure no gradients are tracked otherwise memory blowsup
+    def backward_pass(self, gradient_list):
+        # NOTE: See https://www.wolframalpha.com/input?i=differentiate+%28sqrt%28a*b+-+c%5E2%29+%2B+%28pi+-+arccos%28c%2Fsqrt%28a*b%29%29%29*c%29%2F%282pi%29+wrt+c for differentiation of xy
+        if self.kp is None:
+            raise Exception("Forward pass required before backward pass can be computed. Please evaluate a Kernel first.")
+
+        eps = 1e-6
+        xx_yy = self.kp.xx * self.kp.yy
+
+        term_1 = self.kp.xy / (t.sqrt(xx_yy - self.kp.xy**2) + eps)
+        term_2 = self.kp.xy / (t.sqrt(xx_yy) * t.sqrt(1 - self.kp.xy**2 / xx_yy) + eps)
+        term_3 = t.acos((self.kp.xy / (t.sqrt(xx_yy) + eps)).clamp(-1, 1))
+        diff_xy = (- term_1 + term_2 - term_3 + math.pi) / (2*math.pi)
+        diff_xx = t.ones(self.kp.xx.shape) * 0.5
+        if self.kp.same:
+            diff_yy = t.zeros(self.kp.xx.shape)
+            if self.kp.diag:
+                diff_xy = t.zeros(self.kp.xx.shape)
+            else:
+                # Make sure the diagonal agrees with `xx`
+                eye = t.eye(self.kp.xy.size()[0]).unsqueeze(-1).unsqueeze(-1).to(self.kp.xy.device)
+                diff_xy = (1-eye)*diff_xy
+        else:
+            diff_yy = t.ones(self.kp.yy.shape) * 0.5
+
+        new_gradients = []
+        for gradient in gradient_list:
+            grad = NonlinKP(gradient.same, gradient.diag, gradient.xy, gradient.xx, gradient.yy)
+            grad.xy = grad.xy * diff_xy
+            grad.xx = grad.xx * diff_xx
+            grad.yy = grad.yy * diff_yy
+            new_gradients.append(grad)
+
+        gradient_list = gradient_list + new_gradients
+        return gradient_list
+
     def nn(self, channels, in_channels=None, out_channels=None):
         assert in_channels is None
         assert out_channels is None
@@ -215,6 +272,10 @@ class Sequential(NNGPKernel):
     def propagate(self, kp):
         for mod in self.mods:
             kp = mod.propagate(kp)
+        return kp
+    def backward_pass(self, kp):
+        for mod in self.mods:
+            kp = mod.backward_pass(kp)
         return kp
     def nn(self, channels, in_channels=None, out_channels=None):
         if len(self.mods) == 0:
