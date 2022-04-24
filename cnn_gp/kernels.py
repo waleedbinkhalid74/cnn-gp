@@ -16,10 +16,11 @@ class ReLUCNNGP(autograd.Function):
     @staticmethod
     def forward(ctx, xy, xx_yy):
         ctx.save_for_backward(xy, xx_yy)
+        eps = 1e-6
+        # NOTE: Replaced rsqrt with 1/t.sqrt()+eps. Check with Prof For accuracy
+        inverse_sqrt_xx_yy = 1 / (t.sqrt(xx_yy) + eps)
         # Clamp these so the outputs are not NaN
         # Use small eps to avoid NaN during backpropagation
-        eps = 1e-6
-        inverse_sqrt_xx_yy = 1 / (t.sqrt(xx_yy) + eps)
         cos_theta = (xy * inverse_sqrt_xx_yy).clamp(-1+eps, 1-eps)
         sin_theta = t.sqrt((xx_yy - xy**2).clamp(min=eps))
         theta = t.acos(cos_theta)
@@ -37,6 +38,7 @@ class ReLUCNNGP(autograd.Function):
         term_1 = xy / (t.sqrt((xx_yy - xy**2).clamp(min=0)))
         term_2 = xy / (t.sqrt(xx_yy.clamp(min=0)) * t.sqrt((1 - xy**2 / xx_yy).clamp(min=0)))
         term_3 = t.acos((xy / (t.sqrt(xx_yy.clamp(min=0)))).clamp(-1, 1))
+        # Convert nans to 0 and inf to large numbers
         term_1 = t.nan_to_num(term_1, 0.0)
         term_2 = t.nan_to_num(term_2, 0.0)
         term_3 = t.nan_to_num(term_3, 0.0)
@@ -48,6 +50,7 @@ class ReLUCNNGP(autograd.Function):
         # term_2 = xy**2 / (2 * xx_yy**1.5 * t.sqrt((1 - xy**2 / xx_yy).clamp(min=0)) + eps)
         term_1 = 1 / (2 * t.sqrt((xx_yy - xy**2).clamp(min=0)))
         term_2 = xy**2 / (2 * xx_yy**1.5 * t.sqrt((1 - xy**2 / xx_yy).clamp(min=0)))
+        # Convert nans to 0 and inf to large numbers
         term_1 = t.nan_to_num(term_1, 0.0)
         term_2 = t.nan_to_num(term_2, 0.0)
         diff_xx_yy = (term_1 - term_2) / (2 * math.pi)
@@ -208,8 +211,8 @@ class ReLU(NNGPKernel):
         xy = relu_cnngp(kp.xy, xx_yy)
         ###################SELF IMPLEMENTED BACKWARD PASS###########################
 
-        # Clamp these so the outputs are not NaN
-        # Use small eps to avoid NaN during backpropagation
+        # # Clamp these so the outputs are not NaN
+        # # Use small eps to avoid NaN during backpropagation
         # eps = 1e-6
 
         # # NOTE: Replaced rsqrt with 1/t.sqrt()+eps. Check with Prof For accuracy
