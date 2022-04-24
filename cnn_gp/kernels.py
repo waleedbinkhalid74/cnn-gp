@@ -1,14 +1,59 @@
+from turtle import forward
 import torch as t
 import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
 from .kernel_patch import ConvKP, NonlinKP
 import math
-
+import numpy as np
+# from numpy.fft import fft2, ifft2, fftn, ifftn
+from torch import autograd
 
 __all__ = ("NNGPKernel", "Conv2d", "ReLU", "Sequential", "Mixture",
-           "MixtureModule", "Sum", "SumModule", "resnet_block")
+           "MixtureModule", "Sum", "SumModule", "resnet_block", "ReLUCNNGP")
 
+class ReLUCNNGP(autograd.Function):
+    @staticmethod
+    def forward(ctx, xy, xx_yy):
+        ctx.save_for_backward(xy, xx_yy)
+        # Clamp these so the outputs are not NaN
+        # Use small eps to avoid NaN during backpropagation
+        eps = 1e-6
+        inverse_sqrt_xx_yy = 1 / (t.sqrt(xx_yy) + eps)
+        cos_theta = (xy * inverse_sqrt_xx_yy).clamp(-1+eps, 1-eps)
+        sin_theta = t.sqrt((xx_yy - xy**2).clamp(min=eps))
+        theta = t.acos(cos_theta)
+        xy = (sin_theta + (math.pi - theta)*xy) / (2*math.pi)
+        return xy
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        xy, xx_yy = ctx.saved_tensors
+        eps = 1e-6
+        # NOTE: See https://www.wolframalpha.com/input?i=differentiate+%28sqrt%28a*b+-+c%5E2%29+%2B+%28pi+-+arccos%28c%2Fsqrt%28a*b%29%29%29*c%29%2F%282pi%29+wrt+c for differentiation wrt xy
+        # term_1 = xy / (t.sqrt((xx_yy - xy**2).clamp(min=0)) + eps)
+        # term_2 = xy / (t.sqrt(xx_yy.clamp(min=0)) * t.sqrt((1 - xy**2 / xx_yy).clamp(min=0)) + eps)
+        # term_3 = t.acos((xy / (t.sqrt(xx_yy.clamp(min=0)) + eps)).clamp(-1, 1))
+        term_1 = xy / (t.sqrt((xx_yy - xy**2).clamp(min=0)))
+        term_2 = xy / (t.sqrt(xx_yy.clamp(min=0)) * t.sqrt((1 - xy**2 / xx_yy).clamp(min=0)))
+        term_3 = t.acos((xy / (t.sqrt(xx_yy.clamp(min=0)))).clamp(-1, 1))
+        term_1 = t.nan_to_num(term_1, 0.0)
+        term_2 = t.nan_to_num(term_2, 0.0)
+        term_3 = t.nan_to_num(term_3, 0.0)
+        diff_xy = (- term_1 + term_2 - term_3 + math.pi) / (2*math.pi)
+        diff_xy_chained = grad_output * diff_xy
+
+        # NOTE: See https://www.wolframalpha.com/input?i=differentiate+%28sqrt%28a+-+c%5E2%29+%2B+%28pi+-+arccos%28c%2Fsqrt%28a%29%29%29*c%29%2F%282pi%29+wrt+a for differentiation wrt xx_yy.
+        # term_1 = 1 / (2 * t.sqrt((xx_yy - xy**2).clamp(min=0)) + eps)
+        # term_2 = xy**2 / (2 * xx_yy**1.5 * t.sqrt((1 - xy**2 / xx_yy).clamp(min=0)) + eps)
+        term_1 = 1 / (2 * t.sqrt((xx_yy - xy**2).clamp(min=0)))
+        term_2 = xy**2 / (2 * xx_yy**1.5 * t.sqrt((1 - xy**2 / xx_yy).clamp(min=0)))
+        term_1 = t.nan_to_num(term_1, 0.0)
+        term_2 = t.nan_to_num(term_2, 0.0)
+        diff_xx_yy = (term_1 - term_2) / (2 * math.pi)
+        diff_xx_yy_chained = grad_output * diff_xx_yy
+
+        return diff_xy_chained, diff_xx_yy_chained
 
 class NNGPKernel(nn.Module):
     """
@@ -56,17 +101,6 @@ class NNGPKernel(nn.Module):
         else:
             return r.view(self.N1, self.N2)
 
-    def backprop(self, diag=False):
-            gradient_list = []
-            gradient_list = self.backward_pass(gradient_list)
-            grads = []
-            for result in gradient_list:
-                r = NonlinKP(result).xy
-                if diag:
-                    grads.append(r.view(self.N1).detach().numpy())
-                else:
-                    grads.append(r.view(self.N1, self.N2).detach().numpy())
-            return np.array(grads)
 
 class Conv2d(NNGPKernel):
     def __init__(self, kernel_size, stride=1, padding="same", dilation=1,
@@ -107,7 +141,7 @@ class Conv2d(NNGPKernel):
         kp = ConvKP(kp)
         # NOTE: Only collect data otherwise autograd computational graph will also be saved which is memory intensive
         # This will be used in our custom backward pass
-        self.kp = ConvKP(kp.same, kp.diag, kp.xy.data, kp.xx.data, kp.yy.data)
+        # self.kp = ConvKP(kp.same, kp.diag, kp.xy.data, kp.xx.data, kp.yy.data)
         ###########################ADDED CALCULATION OF KERNEL FROM TRAINABLE VARIANCES###########################
         kernel = self.kernel * (self.var_weight / self.kernel_size**2)
         ###########################ADDED CALCULATION OF KERNEL FROM TRAINABLE VARIANCES###########################
@@ -117,23 +151,6 @@ class Conv2d(NNGPKernel):
                     + self.var_bias)
 
         return ConvKP(kp.same, kp.diag, f(kp.xy), f(kp.xx), f(kp.yy))
-
-    @t.no_grad() # Ensure no gradients are tracked otherwise memory blowsup
-    def backward_pass(self, gradient_list):
-        if self.kp is None:
-            raise Exception("Forward pass required before backward pass can be computed. Please evaluate a Kernel first.")
-
-        kernel = self.kernel * (1.0 / self.kernel_size**2)
-        xy_weight = F.conv2d(self.kp.xy, kernel, stride=self.stride, padding=self.padding, dilation=self.dilation)
-        xx_weight = F.conv2d(self.kp.xx, kernel, stride=self.stride, padding=self.padding, dilation=self.dilation)
-        yy_weight = F.conv2d(self.kp.yy, kernel, stride=self.stride, padding=self.padding, dilation=self.dilation)
-        xy_bias = t.ones(xy_weight.shape)
-        xx_bias = t.ones(xx_weight.shape)
-        yy_bias = t.ones(yy_weight.shape)
-        gradient_list.append(ConvKP(self.kp.same, self.kp.diag, xy_weight, xx_weight, yy_weight))
-        gradient_list.append(ConvKP(self.kp.same, self.kp.diag, xy_bias, xx_bias, yy_bias))
-
-        return gradient_list
 
     def nn(self, channels, in_channels=None, out_channels=None):
         if in_channels is None:
@@ -173,7 +190,7 @@ class ReLU(NNGPKernel):
         kp = NonlinKP(kp)
         # NOTE: Only collect data otherwise autograd computational graph will also be saved which is memory intensive
         # This will be used in our custom backward pass
-        self.kp = NonlinKP(kp.same, kp.diag, kp.xy.data, kp.xx.data, kp.yy.data)
+        # self.kp = NonlinKP(kp.same, kp.diag, kp.xy.data, kp.xx.data, kp.yy.data)
         """
         We need to calculate (xy, xx, yy == c, v₁, v₂):
                       ⏤⏤⏤⏤⏤⏤⏤⏤⏤⏤⏤⏤⏤⏤⏤⏤⏤⏤
@@ -184,24 +201,26 @@ class ReLU(NNGPKernel):
 
         # NOTE we divide by 2 to avoid multiplying the ReLU by sqrt(2)
         """
+
         xx_yy = kp.xx * kp.yy + self.f32_tiny
+        ###################SELF IMPLEMENTED BACKWARD PASS###########################
+        relu_cnngp = ReLUCNNGP.apply
+        xy = relu_cnngp(kp.xy, xx_yy)
+        ###################SELF IMPLEMENTED BACKWARD PASS###########################
 
         # Clamp these so the outputs are not NaN
         # Use small eps to avoid NaN during backpropagation
-        eps = 1e-6
-        ###########################MADE RECIPROCAL SQRT NUMERICALLY STABLE###########################
-        # TODO: Check with Prof if this is ok to do
-        inverse_sqrt_xx_yy = 1 / (t.sqrt(xx_yy) + eps)
-        cos_theta = (kp.xy * inverse_sqrt_xx_yy).clamp(-1+eps, 1-eps)
-        # cos_theta = (kp.xy * xx_yy.rsqrt()).clamp(-1+eps, 1-eps)
-        ###########################MADE RECIPROCAL SQRT NUMERICALLY STABLE###########################
+        # eps = 1e-6
 
-        sin_theta = t.sqrt((xx_yy - kp.xy**2).clamp(min=eps))
+        # # NOTE: Replaced rsqrt with 1/t.sqrt()+eps. Check with Prof For accuracy
+        # inverse_sqrt_xx_yy = 1 / (t.sqrt(xx_yy) + eps)
+        # cos_theta = (kp.xy * inverse_sqrt_xx_yy).clamp(-1+eps, 1-eps)
+        # # cos_theta = (kp.xy * xx_yy.rsqrt()).clamp(-1+eps, 1-eps)
 
-        # cos_theta = (kp.xy * xx_yy.rsqrt()).clamp(-1, 1)
-        # sin_theta = t.sqrt((xx_yy - kp.xy**2).clamp(min=0))
-        theta = t.acos(cos_theta)
-        xy = (sin_theta + (math.pi - theta)*kp.xy) / (2*math.pi)
+        # sin_theta = t.sqrt((xx_yy - kp.xy**2).clamp(min=eps))
+        # # sin_theta = t.sqrt((xx_yy - kp.xy**2).clamp(min=0))
+        # theta = t.acos(cos_theta)
+        # xy = (sin_theta + (math.pi - theta)*kp.xy) / (2*math.pi)
 
         xx = kp.xx/2.
         if kp.same:
@@ -215,42 +234,6 @@ class ReLU(NNGPKernel):
         else:
             yy = kp.yy/2.
         return NonlinKP(kp.same, kp.diag, xy, xx, yy)
-
-    @t.no_grad() # Ensure no gradients are tracked otherwise memory blowsup
-    def backward_pass(self, gradient_list):
-        # NOTE: See https://www.wolframalpha.com/input?i=differentiate+%28sqrt%28a*b+-+c%5E2%29+%2B+%28pi+-+arccos%28c%2Fsqrt%28a*b%29%29%29*c%29%2F%282pi%29+wrt+c for differentiation of xy
-        if self.kp is None:
-            raise Exception("Forward pass required before backward pass can be computed. Please evaluate a Kernel first.")
-
-        eps = 1e-6
-        xx_yy = self.kp.xx * self.kp.yy
-
-        term_1 = self.kp.xy / (t.sqrt(xx_yy - self.kp.xy**2) + eps)
-        term_2 = self.kp.xy / (t.sqrt(xx_yy) * t.sqrt(1 - self.kp.xy**2 / xx_yy) + eps)
-        term_3 = t.acos((self.kp.xy / (t.sqrt(xx_yy) + eps)).clamp(-1, 1))
-        diff_xy = (- term_1 + term_2 - term_3 + math.pi) / (2*math.pi)
-        diff_xx = t.ones(self.kp.xx.shape) * 0.5
-        if self.kp.same:
-            diff_yy = t.zeros(self.kp.xx.shape)
-            if self.kp.diag:
-                diff_xy = t.zeros(self.kp.xx.shape)
-            else:
-                # Make sure the diagonal agrees with `xx`
-                eye = t.eye(self.kp.xy.size()[0]).unsqueeze(-1).unsqueeze(-1).to(self.kp.xy.device)
-                diff_xy = (1-eye)*diff_xy
-        else:
-            diff_yy = t.ones(self.kp.yy.shape) * 0.5
-
-        new_gradients = []
-        for gradient in gradient_list:
-            grad = NonlinKP(gradient.same, gradient.diag, gradient.xy, gradient.xx, gradient.yy)
-            grad.xy = grad.xy * diff_xy
-            grad.xx = grad.xx * diff_xx
-            grad.yy = grad.yy * diff_yy
-            new_gradients.append(grad)
-
-        gradient_list = gradient_list + new_gradients
-        return gradient_list
 
     def nn(self, channels, in_channels=None, out_channels=None):
         assert in_channels is None
@@ -272,10 +255,6 @@ class Sequential(NNGPKernel):
     def propagate(self, kp):
         for mod in self.mods:
             kp = mod.propagate(kp)
-        return kp
-    def backward_pass(self, kp):
-        for mod in self.mods:
-            kp = mod.backward_pass(kp)
         return kp
     def nn(self, channels, in_channels=None, out_channels=None):
         if len(self.mods) == 0:
