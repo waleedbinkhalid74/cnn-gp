@@ -303,25 +303,25 @@ class ReLU(NNGPKernel):
 
 
         ###################SELF IMPLEMENTED BACKWARD PASS###########################
-        # relu_cnngp = ReLUCNNGP.apply
-        # xy = relu_cnngp(kp.xy, kp.xx, kp.yy)
+        relu_cnngp = ReLUCNNGP.apply
+        xy = relu_cnngp(kp.xy, kp.xx, kp.yy)
         # xy = relu_cnngp(kp.xy, xx_yy)
         ###################SELF IMPLEMENTED BACKWARD PASS###########################
 
-        xx_yy = kp.xx * kp.yy + self.f32_tiny
-        # Clamp these so the outputs are not NaN
-        # Use small eps to avoid NaN during backpropagation
-        eps = 1e-6
+        # xx_yy = kp.xx * kp.yy + self.f32_tiny
+        # # Clamp these so the outputs are not NaN
+        # # Use small eps to avoid NaN during backpropagation
+        # eps = 1e-6
 
-        # NOTE: Replaced rsqrt with 1/t.sqrt()+eps. Check with Prof For accuracy
-        inverse_sqrt_xx_yy = 1 / (t.sqrt(xx_yy) + eps)
-        cos_theta = (kp.xy * inverse_sqrt_xx_yy).clamp(-1+eps, 1-eps)
-        # cos_theta = (kp.xy * xx_yy.rsqrt()).clamp(-1+eps, 1-eps)
+        # # NOTE: Replaced rsqrt with 1/t.sqrt()+eps. Check with Prof For accuracy
+        # inverse_sqrt_xx_yy = 1 / (t.sqrt(xx_yy) + eps)
+        # cos_theta = (kp.xy * inverse_sqrt_xx_yy).clamp(-1+eps, 1-eps)
+        # # cos_theta = (kp.xy * xx_yy.rsqrt()).clamp(-1+eps, 1-eps)
 
-        sin_theta = t.sqrt((xx_yy - kp.xy**2).clamp(min=eps))
-        # sin_theta = t.sqrt((xx_yy - kp.xy**2).clamp(min=0))
-        theta = t.acos(cos_theta)
-        xy = (sin_theta + (math.pi - theta)*kp.xy) / (2*math.pi)
+        # sin_theta = t.sqrt((xx_yy - kp.xy**2).clamp(min=eps))
+        # # sin_theta = t.sqrt((xx_yy - kp.xy**2).clamp(min=0))
+        # theta = t.acos(cos_theta)
+        # xy = (sin_theta + (math.pi - theta)*kp.xy) / (2*math.pi)
 
         xx = kp.xx/2.
         if kp.same:

@@ -14,6 +14,14 @@ ACCEPTED_OPTIMIZERS = ['SGD', 'ADAM']
 
 class KernelFlowsCNNGP():
     """Class to model Kernel Flows for convolutional neural network induced gaussian process kernels
+        Pointwise operations (elementwise addition, multiplication, math functions - sin(), cos(), sigmoid() etc.)
+        can be fused into a single kernel to amortize memory access time and kernel launch time.
+        Pointwise operations are memory-bound, for each operation PyTorch launches a separate kernel.
+        Each kernel loads data from the memory, performs computation (this step is usually inexpensive) and stores results back into the memory.
+
+        Fused operator launches only one kernel for multiple fused pointwise ops and loads/stores data only once to the memory.
+        This makes JIT very useful for activation functions, optimizers, custom RNN cells etc.
+        For reference: https://pytorch.org/tutorials/recipes/recipes/tuning_guide.html#fuse-pointwise-operations
     """
     def __init__(self, cnn_gp_kernel: NNGPKernel, lr: float = 0.1,
                  beta: float = 0.9, regularization_lambda: float = 0.000001,
@@ -400,7 +408,12 @@ class KernelFlowsCNNGP():
             # Calculate pi matrix
             pi_matrix = KernelFlowsCNNGP.pi_matrix(sample_indices=sample_indices, dimension=(N_c, N_f))
 
-            optimizer.zero_grad()
+            # NOTE: The second code snippet does not zero the memory of each individual parameter, also the subsequent
+            #       backward pass uses assignment instead of addition to store gradients, this reduces the number of memory operations.
+            # For reference: https://pytorch.org/tutorials/recipes/recipes/tuning_guide.html
+            # optimizer.zero_grad()
+            for param in self.cnn_gp_kernel.parameters():
+                param.grad = None
 
             # Calculate rho
             rho = self.rho(X_batch=X_batch, Y_batch=Y_batch, Y_sample=Y_sample, pi_matrix=pi_matrix)
