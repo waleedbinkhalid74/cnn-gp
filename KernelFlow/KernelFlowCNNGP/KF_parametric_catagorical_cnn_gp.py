@@ -411,13 +411,15 @@ class KernelFlowsCNNGP():
             if torch.isnan(rho):
                 raise ValueError("rho is NaN!")
             # Calculate gradients
-            rho.backward()
+            rho.backward(create_graph=False)
 
             # Optimization step
             optimizer.step()
 
             # Store value of rho
             self.rho_values.append(rho.detach().numpy())
+
+            del rho
 
     def predict(self, X_test: torch.Tensor, N_I: int = False) -> torch.Tensor:
         """Predict method for trained Kernel Flow model

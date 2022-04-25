@@ -1,4 +1,5 @@
 from turtle import forward
+from typing import Tuple
 import torch as t
 import torch.nn as nn
 import torch.nn.functional as F
@@ -59,8 +60,31 @@ __all__ = ("NNGPKernel", "Conv2d", "ReLU", "Sequential", "Mixture",
 #         return diff_xy_chained, diff_xx_yy_chained
 
 class ReLUCNNGP(autograd.Function):
+    """Custom implementation of autograd function for ReLU Layer
+
+    Args:
+        autograd : torch.autograd.Function class
+
+    """
     @staticmethod
-    def forward(ctx, xy, xx, yy):
+    def forward(ctx, xy: t.Tensor, xx: t.Tensor, yy: t.Tensor) -> t.Tensor:
+        """Forward evaluation of K(X,X') for the ReLU Layer in CNN GP
+        We need to calculate (xy, xx, yy == c, v₁, v₂ == K(X,X'), K(X,X), K(X',X')):
+        √(v₁v₂) / 2π ⎷1 - c²/v₁v₂ + (π - θ)c / √(v₁v₂)
+
+        which is equivalent to:
+        1/2π ( √(v₁v₂ - c²) + (π - θ)c )
+
+        # NOTE we divide by 2 to avoid multiplying the ReLU by sqrt(2)
+        Args:
+            ctx : context object for storage purposes of backward pass
+            xy (t.Tensor): K(X,X')
+            xx (t.Tensor): K(X,X)
+            yy (t.Tensor): K(X',X')
+
+        Returns:
+            t.Tensor: V(X,X')
+        """
         ctx.save_for_backward(xy, xx, yy)
         f32_tiny = np.finfo(np.float32).tiny
         xx_yy = xx*yy + f32_tiny
@@ -76,7 +100,26 @@ class ReLUCNNGP(autograd.Function):
         return xy
 
     @staticmethod
-    def backward(ctx, grad_output):
+    def backward(ctx, grad_output: t.Tensor) -> Tuple[t.Tensor, t.Tensor, t.Tensor]:
+        """Evaluate the backward pass for ReLU Layer
+        We need to differentiate (xy, xx, yy == c, v₁, v₂ == K(X,X'), K(X,X), K(X',X')):
+        relu = 1/2π ( √(v₁v₂ - c²) + (π - θ)c )
+        wrt c and a=v₁v₂ and subsequently apply the chain rule i.e.
+        d(relu)/dv₁ = d(relu)/da * da/dv₁
+        d(relu)/dv₂ = d(relu)/da * da/dv₂
+
+        # NOTE: For differentiation wrt c=xy see https://www.wolframalpha.com/input?i=differentiate+%28sqrt%28a*b+-+c%5E2%29+%2B+%28pi+-+arccos%28c%2Fsqrt%28a*b%29%29%29*c%29%2F%282pi%29+wrt+c
+        # NOTE: For differentiation wrt a=xx_yy see https://www.wolframalpha.com/input?i=differentiate+%28sqrt%28a+-+c%5E2%29+%2B+%28pi+-+arccos%28c%2Fsqrt%28a%29%29%29*c%29%2F%282pi%29+wrt+a
+
+        where da/dv₂ = v₁ & da/dv₁ = v₂
+
+        Args:
+            ctx (): context object for retreiving forward pass variable
+            grad_output (t.Tensor): Gradient from output layer
+
+        Returns:
+            Tuple[t.Tensor, t.Tensor, t.Tensor]: Gradients wrt K(X,X'), K(X,X) and K(X',X') respectively
+        """
         xy, xx, yy = ctx.saved_tensors
         f32_tiny = np.finfo(np.float32).tiny
         xx_yy = xx*yy + f32_tiny
@@ -96,8 +139,6 @@ class ReLUCNNGP(autograd.Function):
         diff_xy_chained = grad_output * diff_xy
 
         # NOTE: See https://www.wolframalpha.com/input?i=differentiate+%28sqrt%28a+-+c%5E2%29+%2B+%28pi+-+arccos%28c%2Fsqrt%28a%29%29%29*c%29%2F%282pi%29+wrt+a for differentiation wrt xx_yy.
-        # term_1 = 1 / (2 * t.sqrt((xx_yy - xy**2).clamp(min=0)) + eps)
-        # term_2 = xy**2 / (2 * xx_yy**1.5 * t.sqrt((1 - xy**2 / xx_yy).clamp(min=0)) + eps)
         term_1 = 1 / (2 * t.sqrt((xx_yy - xy**2).clamp(min=0)))
         term_2 = xy**2 / (2 * xx_yy**1.5 * t.sqrt((1 - xy**2 / xx_yy).clamp(min=0)))
         # Convert nans to 0 and inf to large numbers
@@ -260,26 +301,27 @@ class ReLU(NNGPKernel):
         # NOTE this entire logic is encapsulated in a custom autograd function along with its differential
         """
 
-        # xx_yy = kp.xx * kp.yy + self.f32_tiny
+
         ###################SELF IMPLEMENTED BACKWARD PASS###########################
-        relu_cnngp = ReLUCNNGP.apply
-        xy = relu_cnngp(kp.xy, kp.xx, kp.yy)
+        # relu_cnngp = ReLUCNNGP.apply
+        # xy = relu_cnngp(kp.xy, kp.xx, kp.yy)
         # xy = relu_cnngp(kp.xy, xx_yy)
         ###################SELF IMPLEMENTED BACKWARD PASS###########################
 
-        # # Clamp these so the outputs are not NaN
-        # # Use small eps to avoid NaN during backpropagation
-        # eps = 1e-6
+        xx_yy = kp.xx * kp.yy + self.f32_tiny
+        # Clamp these so the outputs are not NaN
+        # Use small eps to avoid NaN during backpropagation
+        eps = 1e-6
 
-        # # NOTE: Replaced rsqrt with 1/t.sqrt()+eps. Check with Prof For accuracy
-        # inverse_sqrt_xx_yy = 1 / (t.sqrt(xx_yy) + eps)
-        # cos_theta = (kp.xy * inverse_sqrt_xx_yy).clamp(-1+eps, 1-eps)
-        # # cos_theta = (kp.xy * xx_yy.rsqrt()).clamp(-1+eps, 1-eps)
+        # NOTE: Replaced rsqrt with 1/t.sqrt()+eps. Check with Prof For accuracy
+        inverse_sqrt_xx_yy = 1 / (t.sqrt(xx_yy) + eps)
+        cos_theta = (kp.xy * inverse_sqrt_xx_yy).clamp(-1+eps, 1-eps)
+        # cos_theta = (kp.xy * xx_yy.rsqrt()).clamp(-1+eps, 1-eps)
 
-        # sin_theta = t.sqrt((xx_yy - kp.xy**2).clamp(min=eps))
-        # # sin_theta = t.sqrt((xx_yy - kp.xy**2).clamp(min=0))
-        # theta = t.acos(cos_theta)
-        # xy = (sin_theta + (math.pi - theta)*kp.xy) / (2*math.pi)
+        sin_theta = t.sqrt((xx_yy - kp.xy**2).clamp(min=eps))
+        # sin_theta = t.sqrt((xx_yy - kp.xy**2).clamp(min=0))
+        theta = t.acos(cos_theta)
+        xy = (sin_theta + (math.pi - theta)*kp.xy) / (2*math.pi)
 
         xx = kp.xx/2.
         if kp.same:
