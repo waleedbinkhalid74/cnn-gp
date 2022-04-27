@@ -19,8 +19,7 @@ class KernelFlowsCNNGP():
         Pointwise operations are memory-bound, for each operation PyTorch launches a separate kernel.
         Each kernel loads data from the memory, performs computation (this step is usually inexpensive) and stores results back into the memory.
 
-        Fused operator launches only one kernel for multiple fused pointwise ops and loads/stores data only once to the memory.
-        This makes JIT very useful for activation functions, optimizers, custom RNN cells etc.
+
         For reference: https://pytorch.org/tutorials/recipes/recipes/tuning_guide.html#fuse-pointwise-operations
     """
     def __init__(self, cnn_gp_kernel: NNGPKernel, lr: float = 0.1,
@@ -349,6 +348,9 @@ class KernelFlowsCNNGP():
         # Calculate rho
         rho = 1 - torch.trace(numerator)/torch.trace(denominator)
 
+        if torch.isnan(rho):
+            raise ValueError("rho is NaN!")
+
         return rho #, sample_matrix, inverse_data, inverse_sample, numerator, denominator
 
 
@@ -411,9 +413,9 @@ class KernelFlowsCNNGP():
             # NOTE: The second code snippet does not zero the memory of each individual parameter, also the subsequent
             #       backward pass uses assignment instead of addition to store gradients, this reduces the number of memory operations.
             # For reference: https://pytorch.org/tutorials/recipes/recipes/tuning_guide.html
-            # optimizer.zero_grad()
-            for param in self.cnn_gp_kernel.parameters():
-                param.grad = None
+            optimizer.zero_grad()
+            # for param in self.cnn_gp_kernel.parameters():
+            #     param.grad = None
 
             # Calculate rho
             rho = self.rho(X_batch=X_batch, Y_batch=Y_batch, Y_sample=Y_sample, pi_matrix=pi_matrix)

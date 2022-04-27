@@ -13,52 +13,6 @@ from torch import autograd
 __all__ = ("NNGPKernel", "Conv2d", "ReLU", "Sequential", "Mixture",
            "MixtureModule", "Sum", "SumModule", "resnet_block", "ReLUCNNGP")
 
-# class ReLUCNNGP(autograd.Function):
-#     @staticmethod
-#     def forward(ctx, xy, xx_yy):
-#         ctx.save_for_backward(xy, xx_yy)
-#         eps = 1e-6
-#         # NOTE: Replaced rsqrt with 1/t.sqrt()+eps. Check with Prof For accuracy
-#         inverse_sqrt_xx_yy = 1 / (t.sqrt(xx_yy) + eps)
-#         # Clamp these so the outputs are not NaN
-#         # Use small eps to avoid NaN during backpropagation
-#         cos_theta = (xy * inverse_sqrt_xx_yy).clamp(-1+eps, 1-eps)
-#         sin_theta = t.sqrt((xx_yy - xy**2).clamp(min=eps))
-#         theta = t.acos(cos_theta)
-#         xy = (sin_theta + (math.pi - theta)*xy) / (2*math.pi)
-#         return xy
-
-#     @staticmethod
-#     def backward(ctx, grad_output):
-#         xy, xx_yy = ctx.saved_tensors
-#         eps = 1e-6
-#         # NOTE: See https://www.wolframalpha.com/input?i=differentiate+%28sqrt%28a*b+-+c%5E2%29+%2B+%28pi+-+arccos%28c%2Fsqrt%28a*b%29%29%29*c%29%2F%282pi%29+wrt+c for differentiation wrt xy
-#         # term_1 = xy / (t.sqrt((xx_yy - xy**2).clamp(min=0)) + eps)
-#         # term_2 = xy / (t.sqrt(xx_yy.clamp(min=0)) * t.sqrt((1 - xy**2 / xx_yy).clamp(min=0)) + eps)
-#         # term_3 = t.acos((xy / (t.sqrt(xx_yy.clamp(min=0)) + eps)).clamp(-1, 1))
-#         term_1 = xy / (t.sqrt((xx_yy - xy**2).clamp(min=0)))
-#         term_2 = xy / (t.sqrt(xx_yy.clamp(min=0)) * t.sqrt((1 - xy**2 / xx_yy).clamp(min=0)))
-#         term_3 = t.acos((xy / (t.sqrt(xx_yy.clamp(min=0)))).clamp(-1, 1))
-#         # Convert nans to 0 and inf to large numbers
-#         term_1 = t.nan_to_num(term_1, 0.0)
-#         term_2 = t.nan_to_num(term_2, 0.0)
-#         term_3 = t.nan_to_num(term_3, 0.0)
-#         diff_xy = (- term_1 + term_2 - term_3 + math.pi) / (2*math.pi)
-#         diff_xy_chained = grad_output * diff_xy
-
-#         # NOTE: See https://www.wolframalpha.com/input?i=differentiate+%28sqrt%28a+-+c%5E2%29+%2B+%28pi+-+arccos%28c%2Fsqrt%28a%29%29%29*c%29%2F%282pi%29+wrt+a for differentiation wrt xx_yy.
-#         # term_1 = 1 / (2 * t.sqrt((xx_yy - xy**2).clamp(min=0)) + eps)
-#         # term_2 = xy**2 / (2 * xx_yy**1.5 * t.sqrt((1 - xy**2 / xx_yy).clamp(min=0)) + eps)
-#         term_1 = 1 / (2 * t.sqrt((xx_yy - xy**2).clamp(min=0)))
-#         term_2 = xy**2 / (2 * xx_yy**1.5 * t.sqrt((1 - xy**2 / xx_yy).clamp(min=0)))
-#         # Convert nans to 0 and inf to large numbers
-#         term_1 = t.nan_to_num(term_1, 0.0)
-#         term_2 = t.nan_to_num(term_2, 0.0)
-#         diff_xx_yy = (term_1 - term_2) / (2 * math.pi)
-#         diff_xx_yy_chained = grad_output * diff_xx_yy
-
-#         return diff_xy_chained, diff_xx_yy_chained
-
 class ReLUCNNGP(autograd.Function):
     """Custom implementation of autograd function for ReLU Layer
 
@@ -88,7 +42,7 @@ class ReLUCNNGP(autograd.Function):
         ctx.save_for_backward(xy, xx, yy)
         f32_tiny = np.finfo(np.float32).tiny
         xx_yy = xx*yy + f32_tiny
-        eps = 1e-6
+        eps = 0#1e-6
         # NOTE: Replaced rsqrt with 1/t.sqrt()+eps. Check with Prof For accuracy
         inverse_sqrt_xx_yy = 1 / (t.sqrt(xx_yy) + eps)
         # Clamp these so the outputs are not NaN
@@ -121,37 +75,130 @@ class ReLUCNNGP(autograd.Function):
             Tuple[t.Tensor, t.Tensor, t.Tensor]: Gradients wrt K(X,X'), K(X,X) and K(X',X') respectively
         """
         xy, xx, yy = ctx.saved_tensors
-        f32_tiny = np.finfo(np.float32).tiny
-        xx_yy = xx*yy + f32_tiny
-        eps = 1e-6
+        xx_yy = xx*yy
         # NOTE: See https://www.wolframalpha.com/input?i=differentiate+%28sqrt%28a*b+-+c%5E2%29+%2B+%28pi+-+arccos%28c%2Fsqrt%28a*b%29%29%29*c%29%2F%282pi%29+wrt+c for differentiation wrt xy
         # term_1 = xy / (t.sqrt((xx_yy - xy**2).clamp(min=0)) + eps)
         # term_2 = xy / (t.sqrt(xx_yy.clamp(min=0)) * t.sqrt((1 - xy**2 / xx_yy).clamp(min=0)) + eps)
         # term_3 = t.acos((xy / (t.sqrt(xx_yy.clamp(min=0)) + eps)).clamp(-1, 1))
-        term_1 = xy / (t.sqrt((xx_yy - xy**2).clamp(min=0)))
-        term_2 = xy / (t.sqrt(xx_yy.clamp(min=0)) * t.sqrt((1 - xy**2 / xx_yy).clamp(min=0)))
+        # term_1 = xy / (t.sqrt((xx_yy - xy**2).clamp(min=0)))
+        # term_2 = xy / (t.sqrt(xx_yy.clamp(min=0)) * t.sqrt((1 - xy**2 / xx_yy).clamp(min=0)))
         term_3 = t.acos((xy / (t.sqrt(xx_yy.clamp(min=0)))).clamp(-1, 1))
+
         # Convert nans to 0 and inf to large numbers
-        term_1 = t.nan_to_num(term_1, 0.0)
-        term_2 = t.nan_to_num(term_2, 0.0)
-        term_3 = t.nan_to_num(term_3, 0.0)
-        diff_xy = (- term_1 + term_2 - term_3 + math.pi) / (2*math.pi)
+        # term_1 = t.nan_to_num(term_1)
+        # term_2 = t.nan_to_num(term_2)
+        term_3 = t.nan_to_num(term_3)
+
+        # NOTE: We can remove term_1 and term_2 as they cancel each other out in exact arthmetics
+        # diff_xy = (- term_1 + term_2 - term_3 + math.pi) / (2*math.pi)
+        diff_xy = (- term_3 + math.pi) / (2*math.pi)
         diff_xy_chained = grad_output * diff_xy
 
         # NOTE: See https://www.wolframalpha.com/input?i=differentiate+%28sqrt%28a+-+c%5E2%29+%2B+%28pi+-+arccos%28c%2Fsqrt%28a%29%29%29*c%29%2F%282pi%29+wrt+a for differentiation wrt xx_yy.
-        term_1 = 1 / (2 * t.sqrt((xx_yy - xy**2).clamp(min=0)))
-        term_2 = xy**2 / (2 * xx_yy**1.5 * t.sqrt((1 - xy**2 / xx_yy).clamp(min=0)))
-        # Convert nans to 0 and inf to large numbers
-        term_1 = t.nan_to_num(term_1, 0.0)
-        term_2 = t.nan_to_num(term_2, 0.0)
-        diff_xx_yy = (term_1 - term_2) / (2 * math.pi)
+        # term_1 = 1 / (2 * t.sqrt((xx_yy - xy**2).clamp(min=0)) + eps)
+        # term_2 = xy**2 / (2 * xx_yy**1.5 * t.sqrt((1 - xy**2 / xx_yy).clamp(min=0)) + eps)
 
-        diff_xx = diff_xx_yy * yy
+        sin_theta = (xx_yy - xy**2).clamp(min=0)
+        term_1 = 1 / (2 * t.sqrt(sin_theta))
+        # term_2 = xy**2 / (2 * xx_yy**1.5 * t.sqrt((1 - xy**2 / xx_yy).clamp(min=0)))
+        term_2 = xy**2 / (2 * xx_yy * t.sqrt(sin_theta))
+
+        # term_1 = 1 / (2 * t.sqrt((xx_yy - xy**2).clamp(min=0)))
+        # term_2 = (1 - xy**2 / xx_yy)
+        # Convert nans to 0 and inf to large numbers
+        # NOTE: The two terms can be infinite and we wish the result to be zero if both terms are inifnity
+        # In pytorch inf - inf is nan so we convert the nans to zero
+        diff_xx_yy = (term_1 - term_2) / (2 * math.pi)
+        diff_xx_yy = t.nan_to_num(diff_xx_yy)
+        # diff_xx_yy = term_1 * (1 - term_2) / (2 * math.pi)
+        diff_xx = yy * diff_xx_yy
         diff_xx_chained = grad_output * diff_xx
-        diff_yy = diff_xx_yy * xx
+        diff_yy = xx * diff_xx_yy
         diff_yy_chained = grad_output * diff_yy
 
         return diff_xy_chained, diff_xx_chained, diff_yy_chained
+
+# class ReLUCNNGP(autograd.Function):
+#     """Custom implementation of autograd function for ReLU Layer
+
+#     Args:
+#         autograd : torch.autograd.Function class
+
+#     """
+#     @staticmethod
+#     def forward(ctx, xy: t.Tensor, xx: t.Tensor, yy: t.Tensor) -> t.Tensor:
+#         """Forward evaluation of K(X,X') for the ReLU Layer in CNN GP
+#         We need to calculate (xy, xx, yy == c, v₁, v₂ == K(X,X'), K(X,X), K(X',X')):
+#         √(v₁v₂) / 2π ⎷(1 - c²/v₁v₂) + (π - θ)c / √(v₁v₂)
+
+#         which is equivalent to:
+#         1/2π ( √(v₁v₂ - c²) + (π - θ)c )
+
+#         # NOTE we divide by 2 to avoid multiplying the ReLU by sqrt(2)
+#         Args:
+#             ctx : context object for storage purposes of backward pass
+#             xy (t.Tensor): K(X,X')
+#             xx (t.Tensor): K(X,X)
+#             yy (t.Tensor): K(X',X')
+
+#         Returns:
+#             t.Tensor: V(X,X')
+#         """
+#         f32_tiny = np.finfo(np.float32).tiny
+#         xx_yy = xx*yy + f32_tiny
+#         eps = 1e-6
+#         # NOTE: Replaced rsqrt with 1/t.sqrt()+eps. Check with Prof For accuracy
+#         # Clamp these so the outputs are not NaN
+#         # Use small eps to avoid NaN during backpropagation
+
+#         inverse_sqrt_xx_yy = 1 / (t.sqrt(xx_yy) + eps)
+#         cos_theta = (xy * inverse_sqrt_xx_yy).clamp(-1+eps, 1-eps)
+#         # cos_theta = (xy * xx_yy.rsqrt()).clamp(-1+eps, 1-eps)
+#         sin_theta = t.sqrt((xx_yy - xy**2).clamp(min=eps))
+#         theta = t.acos(cos_theta)
+#         V_xy = (sin_theta + (math.pi - theta)*xy) / (2*math.pi)
+#         ctx.save_for_backward(xy, xx, yy, xx_yy, inverse_sqrt_xx_yy, sin_theta, cos_theta, theta)
+#         return V_xy
+
+#     @staticmethod
+#     def backward(ctx, grad_output: t.Tensor) -> Tuple[t.Tensor, t.Tensor, t.Tensor]:
+#         """Evaluate the backward pass for ReLU Layer
+#         We need to differentiate (xy, xx, yy == c, v₁, v₂ == K(X,X'), K(X,X), K(X',X')):
+#         relu = 1/2π ( √(v₁v₂ - c²) + (π - θ)c )
+#         wrt c and a=v₁v₂ and subsequently apply the chain rule i.e.
+#         d(relu)/dv₁ = d(relu)/da * da/dv₁
+#         d(relu)/dv₂ = d(relu)/da * da/dv₂
+
+#         # NOTE: For differentiation wrt x=xy see https://www.wolframalpha.com/input?i=differentiate+%28sqrt%28a*b+-+c%5E2%29+%2B+%28pi+-+arccos%28c%2Fsqrt%28a*b%29%29%29*c%29%2F%282pi%29+wrt+c
+#         # NOTE: For differentiation wrt y=xx_yy see https://www.wolframalpha.com/input?i=differentiate+%28sqrt%28a+-+c%5E2%29+%2B+%28pi+-+arccos%28c%2Fsqrt%28a%29%29%29*c%29%2F%282pi%29+wrt+a
+
+#         where da/dv₂ = v₁ & da/dv₁ = v₂
+
+#         Args:
+#             ctx (): context object for retreiving forward pass variable
+#             grad_output (t.Tensor): Gradient from output layer
+
+#         Returns:
+#             Tuple[t.Tensor, t.Tensor, t.Tensor]: Gradients wrt K(X,X'), K(X,X) and K(X',X') respectively
+#         """
+#         xy, xx, yy, xx_yy, inverse_sqrt_xx_yy, sin_theta, cos_theta, theta = ctx.saved_tensors
+#         # NOTE: See https://www.wolframalpha.com/input?i=differentiate+%28sqrt%28a*b+-+c%5E2%29+%2B+%28pi+-+arccos%28c%2Fsqrt%28a*b%29%29%29*c%29%2F%282pi%29+wrt+c for differentiation wrt xy
+#         # diff_xy = (-t.acos(cos_theta) + math.pi) / (2*math.pi)
+#         diff_xy = (-t.acos(cos_theta) + math.pi) / (2*math.pi)
+#         diff_xy = t.nan_to_num(diff_xy)
+#         diff_xy_chained = grad_output * diff_xy
+
+#         # NOTE: See https://www.wolframalpha.com/input?i=differentiate+%28sqrt%28a+-+c%5E2%29+%2B+%28pi+-+arccos%28c%2Fsqrt%28a%29%29%29*c%29%2F%282pi%29+wrt+a for differentiation wrt xx_yy.
+
+#         # diff_xx_yy = (1 / (2 * sin_theta) * (1 - cos_theta**2)) / (2 * math.pi)
+#         diff_xx_yy = (1 / (2 * t.sqrt((xx_yy - xy**2).clamp(min=0))) - xy**2 / (t.sqrt((1 - cos_theta**2).clamp(min=0))*2*xx_yy**1.5)) / (2 * math.pi)
+#         diff_xx_yy = t.nan_to_num(diff_xx_yy, nan=0.0, posinf=0.0, neginf=0.0)
+#         diff_xx = yy * diff_xx_yy
+#         diff_xx_chained = grad_output * diff_xx
+#         diff_yy = xx * diff_xx_yy
+#         diff_yy_chained = grad_output * diff_yy
+
+#         return diff_xy_chained, diff_xx_chained, diff_yy_chained
 
 class NNGPKernel(nn.Module):
     """
@@ -235,6 +282,7 @@ class Conv2d(NNGPKernel):
         self.in_channel_multiplier, self.out_channel_multiplier = (
             in_channel_multiplier, out_channel_multiplier)
 
+
     def propagate(self, kp):
         kp = ConvKP(kp)
         # NOTE: Only collect data otherwise autograd computational graph will also be saved which is memory intensive
@@ -278,12 +326,14 @@ class Conv2d(NNGPKernel):
         return 1
 
 
+
 class ReLU(NNGPKernel):
     """
     A ReLU nonlinearity, the covariance is numerically stabilised by clamping
     values.
     """
     f32_tiny = np.finfo(np.float32).tiny
+
     def propagate(self, kp):
         kp = NonlinKP(kp)
         # NOTE: Only collect data otherwise autograd computational graph will also be saved which is memory intensive

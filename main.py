@@ -12,6 +12,9 @@ import matplotlib.pyplot as plt
 import torchvision.transforms as T
 from torch import autograd
 import torchviz
+import torch.nn as nn
+
+from cnn_gp.kernels import ReLUCNNGP
 
 def rho(X_batch: torch.Tensor, Y_batch: torch.Tensor,
         Y_sample: torch.Tensor, pi_matrix: torch.Tensor, kernel) -> torch.Tensor:
@@ -33,17 +36,17 @@ def rho(X_batch: torch.Tensor, Y_batch: torch.Tensor,
 
     # Calculate kernel theta = Kernel(X_Nf, X_Nf). NOTE: This is the most expensive step of the algorithm
     theta = kernel(X_batch, X_batch)
-
+    print(theta)
     # Calculate sample_matrix = pi_mat*theta*pi_mat^T
     sample_matrix = torch.matmul(pi_matrix, torch.matmul(theta, torch.transpose(pi_matrix, 0, 1)))
 
     # Add regularization
-    inverse_data = torch.linalg.inv(theta)# + 0 * torch.eye(theta.shape[0]))
+    inverse_data = torch.linalg.inv(theta)# + 0.001 * torch.eye(theta.shape[0]))
 
     # Delete theta matrix to free memory as it is not needed beyond this point
     # del theta
 
-    inverse_sample = torch.linalg.inv(sample_matrix)# + 0 * torch.eye(sample_matrix.shape[0]))
+    inverse_sample = torch.linalg.inv(sample_matrix)# + 0.001 * torch.eye(sample_matrix.shape[0]))
 
     # Calculate numerator
     numerator = torch.matmul(torch.transpose(Y_sample,0,1), torch.matmul(inverse_sample, Y_sample))
@@ -54,65 +57,17 @@ def rho(X_batch: torch.Tensor, Y_batch: torch.Tensor,
 
     return rho
 
-# class ReLUCNNGP(autograd.Function):
-#     @staticmethod
-#     def forward(ctx, xy, xx, yy):
-#         ctx.save_for_backward(xy, xx, yy)
-#         f32_tiny = np.finfo(np.float32).tiny
-#         xx_yy = xx*yy + f32_tiny
-#         eps = 1e-6
-#         # NOTE: Replaced rsqrt with 1/t.sqrt()+eps. Check with Prof For accuracy
-#         inverse_sqrt_xx_yy = 1 / (torch.sqrt(xx_yy) + eps)
-#         # Clamp these so the outputs are not NaN
-#         # Use small eps to avoid NaN during backpropagation
-#         cos_theta = (xy * inverse_sqrt_xx_yy).clamp(-1+eps, 1-eps)
-#         sin_theta = torch.sqrt((xx_yy - xy**2).clamp(min=eps))
-#         theta = torch.acos(cos_theta)
-#         xy = (sin_theta + (math.pi - theta)*xy) / (2*math.pi)
-#         return xy
-
-#     @staticmethod
-#     def backward(ctx, grad_output):
-#         xy, xx, yy = ctx.saved_tensors
-#         f32_tiny = np.finfo(np.float32).tiny
-#         xx_yy = xx*yy + f32_tiny
-#         eps = 1e-6
-#         # NOTE: See https://www.wolframalpha.com/input?i=differentiate+%28sqrt%28a*b+-+c%5E2%29+%2B+%28pi+-+arccos%28c%2Fsqrt%28a*b%29%29%29*c%29%2F%282pi%29+wrt+c for differentiation wrt xy
-#         # term_1 = xy / (torch.sqrt((xx_yy - xy**2).clamp(min=0)) + eps)
-#         # term_2 = xy / (torch.sqrt(xx_yy.clamp(min=0)) * torch.sqrt((1 - xy**2 / xx_yy).clamp(min=0)) + eps)
-#         # term_3 = torch.acos((xy / (torch.sqrt(xx_yy.clamp(min=0)) + eps)).clamp(-1, 1))
-#         term_1 = xy / (torch.sqrt((xx_yy - xy**2).clamp(min=0)))
-#         term_2 = xy / (torch.sqrt(xx_yy.clamp(min=0)) * torch.sqrt((1 - xy**2 / xx_yy).clamp(min=0)))
-#         term_3 = torch.acos((xy / (torch.sqrt(xx_yy.clamp(min=0)))).clamp(-1, 1))
-#         # Convert nans to 0 and inf to large numbers
-#         term_1 = torch.nan_to_num(term_1, 0.0)
-#         term_2 = torch.nan_to_num(term_2, 0.0)
-#         term_3 = torch.nan_to_num(term_3, 0.0)
-#         diff_xy = (- term_1 + term_2 - term_3 + math.pi) / (2*math.pi)
-#         diff_xy_chained = grad_output * diff_xy
-
-#         # NOTE: See https://www.wolframalpha.com/input?i=differentiate+%28sqrt%28a+-+c%5E2%29+%2B+%28pi+-+arccos%28c%2Fsqrt%28a%29%29%29*c%29%2F%282pi%29+wrt+a for differentiation wrt xx_yy.
-#         # term_1 = 1 / (2 * torch.sqrt((xx_yy - xy**2).clamp(min=0)) + eps)
-#         # term_2 = xy**2 / (2 * xx_yy**1.5 * torch.sqrt((1 - xy**2 / xx_yy).clamp(min=0)) + eps)
-#         term_1 = 1 / (2 * torch.sqrt((xx_yy - xy**2).clamp(min=0)))
-#         term_2 = xy**2 / (2 * xx_yy**1.5 * torch.sqrt((1 - xy**2 / xx_yy).clamp(min=0)))
-#         # Convert nans to 0 and inf to large numbers
-#         term_1 = torch.nan_to_num(term_1, 0.0)
-#         term_2 = torch.nan_to_num(term_2, 0.0)
-#         diff_xx_yy = (term_1 - term_2) / (2 * math.pi)
-
-#         diff_xx = diff_xx_yy * yy
-#         diff_xx_chained = grad_output * diff_xx
-#         diff_yy = diff_xx_yy * xx
-#         diff_yy_chained = grad_output * diff_yy
-
-#         # diff_xx_yy_chained = grad_output * diff_xx_yy
-
-#         return diff_xy_chained, diff_xx_chained, diff_yy_chained
 
 if __name__ == "__main__":
+    # numactl --cpunodebind=N --membind=N python <pytorch_script>
+    # NOTE: For reference: https://pytorch.org/tutorials/recipes/recipes/tuning_guide.html#utilize-non-uniform-memory-access-numa-controls
     transform = transforms.Compose([transforms.ToTensor()])
-
+    # transform = transforms.Compose([transforms.ToTensor(),
+    #                                 T.Lambda(lambda x: torch.flatten(x)),
+    #                                 T.Lambda(lambda x: nn.functional.normalize(x, p=2, dim=0)),
+    #                                 T.Lambda(lambda x: torch.reshape(x, (28,28))),
+    #                                 T.Lambda(lambda x: torch.unsqueeze(x, dim=0))
+    #                             ])
     batch_size = 10000
     val_size = 1000
     N_I = 1000
@@ -140,8 +95,9 @@ if __name__ == "__main__":
         Conv2d(kernel_size=14, padding=0),  # equivalent to a dense layer
         )
 
+    # print(model(X_train[:100],X_train[:100]))
     # KFCNNGP = KernelFlowsCNNGP(cnn_gp_kernel=model)
-    # KFCNNGP.fit(X_train, Y_train, 2, 250)
+    # KFCNNGP.fit(X_train, Y_train, 1, 100)
 
 
     # var_bias = 7.86
@@ -177,9 +133,16 @@ if __name__ == "__main__":
     # K_xx = model(X_train[0:10], X_train[0:10])#, X_train[0:10])
 
     pi_mat = KernelFlowsCNNGP.pi_matrix(sample_indices=np.array([1,3,5,7,9]), dimension=(5,10))
-    rho_val = rho(X_train[:10], Y_train[:10].to(torch.float32), Y_sample=Y_train[np.array([1,3,5,7,9])].to(torch.float32), pi_matrix=pi_mat, kernel=model)
-    # rho_val.backward()
-    # for params in model.parameters():
-    #     print(params, params.grad)
+    # rho_val = rho(X_train[:10], Y_train[:10].to(torch.float32), Y_sample=Y_train[np.array([1,3,5,7,9])].to(torch.float32), pi_matrix=pi_mat, kernel=model)
+    rho_val = rho(X_train[-10:], Y_train[-10:].to(torch.float32), Y_sample=Y_train[np.array([1,3,5,7,9])].to(torch.float32), pi_matrix=pi_mat, kernel=model)
+    rho_val.backward()
+    for params in model.parameters():
+        print(params, params.grad)
 
-    torchviz.make_dot(rho_val, params=dict(model.named_parameters()))
+    from torch.autograd import gradcheck
+    relucnngp = ReLUCNNGP.apply
+    # input = (torch.ones((5,5,1,1),dtype=torch.double,requires_grad=True), torch.ones((5,1,1,1),dtype=torch.double,requires_grad=True), torch.ones((5,1,1),dtype=torch.double,requires_grad=True))
+    input = (torch.rand((25,25,1,1),dtype=torch.double,requires_grad=True), torch.rand((25,1,1,1),dtype=torch.double,requires_grad=True), torch.rand((25,1,1),dtype=torch.double,requires_grad=True))
+    test = gradcheck(relucnngp, input)#, eps=1e-10, atol=1e-3, rtol=1e-4)
+    print(test)
+    # torchviz.make_dot(rho_val, params=dict(model.named_parameters()))
