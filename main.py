@@ -133,16 +133,21 @@ if __name__ == "__main__":
     # K_xx = model(X_train[0:10], X_train[0:10])#, X_train[0:10])
 
     pi_mat = KernelFlowsCNNGP.pi_matrix(sample_indices=np.array([1,3,5,7,9]), dimension=(5,10))
-    # rho_val = rho(X_train[:10], Y_train[:10].to(torch.float32), Y_sample=Y_train[np.array([1,3,5,7,9])].to(torch.float32), pi_matrix=pi_mat, kernel=model)
-    rho_val = rho(X_train[-10:], Y_train[-10:].to(torch.float32), Y_sample=Y_train[np.array([1,3,5,7,9])].to(torch.float32), pi_matrix=pi_mat, kernel=model)
+    rho_val = rho(X_train[:10], Y_train[:10].to(torch.float32), Y_sample=Y_train[np.array([1,3,5,7,9])].to(torch.float32), pi_matrix=pi_mat, kernel=model)
+    # rho_val = rho(X_train[-10:], Y_train[-10:].to(torch.float32), Y_sample=Y_train[np.array([1,3,5,7,9])].to(torch.float32), pi_matrix=pi_mat, kernel=model)
     rho_val.backward()
     for params in model.parameters():
         print(params, params.grad)
 
-    from torch.autograd import gradcheck
-    relucnngp = ReLUCNNGP.apply
-    # input = (torch.ones((5,5,1,1),dtype=torch.double,requires_grad=True), torch.ones((5,1,1,1),dtype=torch.double,requires_grad=True), torch.ones((5,1,1),dtype=torch.double,requires_grad=True))
-    input = (torch.rand((25,25,1,1),dtype=torch.double,requires_grad=True), torch.rand((25,1,1,1),dtype=torch.double,requires_grad=True), torch.rand((25,1,1),dtype=torch.double,requires_grad=True))
-    test = gradcheck(relucnngp, input)#, eps=1e-10, atol=1e-3, rtol=1e-4)
-    print(test)
+    # optimizer =  torch.optim.SGD(model.parameters(), lr=0.01)
+    # optimizer.step()
+    # print("After optimization step")
+    # for params in model.parameters():
+    #     print(params, params.grad)
+    # from torch.autograd import gradcheck
+    # relucnngp = ReLUCNNGP.apply
+    # # input = (torch.ones((5,5,1,1),dtype=torch.double,requires_grad=True), torch.ones((5,1,1,1),dtype=torch.double,requires_grad=True), torch.ones((5,1,1),dtype=torch.double,requires_grad=True))
+    # input = (torch.rand((100,100,1,1),dtype=torch.double,requires_grad=True), torch.rand((100,1,1,1),dtype=torch.double,requires_grad=True), torch.rand((100,1,1),dtype=torch.double,requires_grad=True))
+    # test = gradcheck(relucnngp, input)#, eps=1e-10, atol=1e-3, rtol=1e-4)
+    # print(test)
     # torchviz.make_dot(rho_val, params=dict(model.named_parameters()))

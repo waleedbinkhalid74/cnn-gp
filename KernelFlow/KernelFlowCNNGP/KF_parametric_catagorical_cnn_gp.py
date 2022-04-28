@@ -195,6 +195,7 @@ class KernelFlowsCNNGP():
             remainder_horizontal = Y.shape[0] - blocks_horizontal*blocksize
             block_horizontal  = 0
             k_matrix = np.ones((X.shape[0], Y.shape[0]), dtype=float)
+            #  Handling main chunk of the blocks
             for block_vertical in tqdm(range(blocks_vertical)):
                 X_batch_train_vertical = X[block_vertical*blocksize:(block_vertical+1)*blocksize]
                 for block_horizontal in range(blocks_horizontal):

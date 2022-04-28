@@ -200,6 +200,7 @@ class ReLUCNNGP(autograd.Function):
 
 #         return diff_xy_chained, diff_xx_chained, diff_yy_chained
 
+
 class NNGPKernel(nn.Module):
     """
     Transforms one kernel matrix into another.
@@ -279,6 +280,8 @@ class Conv2d(NNGPKernel):
             self.kernel[:, :, :, 0] = 0.
         else:
             self.kernel = t.ones(1, 1, self.kernel_size, self.kernel_size)
+
+        self.kernel = self.kernel / self.kernel_size**2
         self.in_channel_multiplier, self.out_channel_multiplier = (
             in_channel_multiplier, out_channel_multiplier)
 
@@ -289,7 +292,7 @@ class Conv2d(NNGPKernel):
         # This will be used in our custom backward pass
         # self.kp = ConvKP(kp.same, kp.diag, kp.xy.data, kp.xx.data, kp.yy.data)
         ###########################ADDED CALCULATION OF KERNEL FROM TRAINABLE VARIANCES###########################
-        kernel = self.kernel * (self.var_weight / self.kernel_size**2)
+        kernel = self.kernel * self.var_weight
         ###########################ADDED CALCULATION OF KERNEL FROM TRAINABLE VARIANCES###########################
         def f(patch):
             return (F.conv2d(patch, kernel, stride=self.stride, # CHANGE self.kernel to kernel
