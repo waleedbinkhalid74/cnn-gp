@@ -5,6 +5,7 @@
 saved_kernels/
 profiling/
 results/
+parallel_kernel_eval.py
 
 !CNN_GP_Memory.ipynb
 models/

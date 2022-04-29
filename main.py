@@ -15,6 +15,8 @@ import torchviz
 import torch.nn as nn
 
 from cnn_gp.kernels import ReLUCNNGP
+import torch.multiprocessing as mp
+
 
 def rho(X_batch: torch.Tensor, Y_batch: torch.Tensor,
         Y_sample: torch.Tensor, pi_matrix: torch.Tensor, kernel) -> torch.Tensor:
@@ -144,10 +146,11 @@ if __name__ == "__main__":
     # print("After optimization step")
     # for params in model.parameters():
     #     print(params, params.grad)
-    # from torch.autograd import gradcheck
-    # relucnngp = ReLUCNNGP.apply
-    # # input = (torch.ones((5,5,1,1),dtype=torch.double,requires_grad=True), torch.ones((5,1,1,1),dtype=torch.double,requires_grad=True), torch.ones((5,1,1),dtype=torch.double,requires_grad=True))
-    # input = (torch.rand((100,100,1,1),dtype=torch.double,requires_grad=True), torch.rand((100,1,1,1),dtype=torch.double,requires_grad=True), torch.rand((100,1,1),dtype=torch.double,requires_grad=True))
-    # test = gradcheck(relucnngp, input)#, eps=1e-10, atol=1e-3, rtol=1e-4)
-    # print(test)
+
+    from torch.autograd import gradcheck
+    relucnngp = ReLUCNNGP.apply
+    # input = (torch.ones((5,5,1,1),dtype=torch.double,requires_grad=True), torch.ones((5,1,1,1),dtype=torch.double,requires_grad=True), torch.ones((5,1,1),dtype=torch.double,requires_grad=True))
+    input = (torch.rand((5,5,1,1),dtype=torch.double,requires_grad=True), torch.rand((5,1,1,1),dtype=torch.double,requires_grad=True), torch.rand((5,1,1),dtype=torch.double,requires_grad=True))
+    test = gradcheck(relucnngp, input)#, eps=1e-10, atol=1e-3, rtol=1e-4)
+    print(test)
     # torchviz.make_dot(rho_val, params=dict(model.named_parameters()))

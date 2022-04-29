@@ -1,8 +1,10 @@
+import itertools
 import os
 from pickletools import optimize
 from typing import Tuple
 import warnings
 
+from torch.multiprocessing import Process, Pool, set_start_method, Queue
 from scipy.linalg import lstsq
 from cnn_gp import NNGPKernel
 import torch
@@ -11,6 +13,12 @@ import numpy as np
 from tqdm import tqdm
 
 ACCEPTED_OPTIMIZERS = ['SGD', 'ADAM']
+
+def kernel_wrapper(X, Y, queue, kernel):
+    # async with torch.no_grad:
+    torch.set_grad_enabled(False)
+    result = kernel(X,Y)
+    queue.put(result)
 
 class KernelFlowsCNNGP():
     """Class to model Kernel Flows for convolutional neural network induced gaussian process kernels
@@ -161,6 +169,39 @@ class KernelFlowsCNNGP():
         sample_indices = KernelFlowsCNNGP.sample_selection(data_batch, sample_size)
 
         return sample_indices, batch_indices
+
+    @staticmethod
+    def _block_kernel_eval_parallel(X: torch.Tensor, Y: torch.Tensor, block_size: int, kernel: nn.Module) -> np.ndarray:
+
+        # NOTE: For reference: https://pytorch.org/docs/stable/notes/multiprocessing.html
+        try:
+            set_start_method('spawn')
+        except RuntimeError:
+            pass
+        queue = Queue()
+        X_blocks = torch.split(X, block_size)
+        Y_blocks = torch.split(Y, block_size)
+        block_pairs = list(itertools.product(X_blocks, Y_blocks))
+        processes = []
+        results = []
+        for block in block_pairs:
+            arguments = block + (queue, kernel)
+            process = Process(target=kernel_wrapper, args= arguments)
+            processes.append(process)
+            process.start()
+        for i in range(len(processes)):
+            results.append(queue.get())
+        for proc in processes:
+            proc.join()
+
+        results = torch.cat(results).numpy()
+        results_reformated = np.zeros((X.shape[0], Y.shape[0]))
+        counter = 0
+        for i in range(len(X_blocks)):
+            for j in range(len(Y_blocks)):
+                results_reformated[i*block_size:(i+1)*block_size, j*block_size:(j+1)*block_size] = results[counter*block_size:(counter+1)*block_size]
+                counter += 1
+        return results_reformated
 
 
     @staticmethod
@@ -349,9 +390,6 @@ class KernelFlowsCNNGP():
         # Calculate rho
         rho = 1 - torch.trace(numerator)/torch.trace(denominator)
 
-        if torch.isnan(rho):
-            raise ValueError("rho is NaN!")
-
         return rho #, sample_matrix, inverse_data, inverse_sample, numerator, denominator
 
 
@@ -436,6 +474,7 @@ class KernelFlowsCNNGP():
             self.rho_values.append(rho.detach().numpy())
 
             del rho
+
 
     def predict(self, X_test: torch.Tensor, N_I: int = False) -> torch.Tensor:
         """Predict method for trained Kernel Flow model
