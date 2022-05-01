@@ -1,12 +1,11 @@
 import itertools
 import os
-from pickletools import optimize
 from typing import Tuple
 import warnings
-
+from xmlrpc.client import boolean
 from torch.multiprocessing import Process, Pool, set_start_method, Queue
 from scipy.linalg import lstsq
-from cnn_gp import NNGPKernel
+from cnn_gp import NNGPKernel, ProductIterator
 import torch
 import torch.nn as nn
 import numpy as np
@@ -205,20 +204,8 @@ class KernelFlowsCNNGP():
 
 
     @staticmethod
-    def _block_kernel_eval(X: torch.Tensor, Y: torch.Tensor, blocksize: int, kernel: nn.Module) -> np.ndarray:
-        """Evaluates the kernel matrix using a block wise evaluation approach. First the blocks are evaluated where the horizontal remainders (rh) are calculated in the same loop.
-        The vertical remainders (rv) are evaluated in a separate loop.
-        ---------------------
-        |       |       |   |
-        |   b   |  b    | rh|
-        |       |       | rh|
-        ---------------------
-        |       |       |   |
-        |   b   |   b   | rh|
-        |       |       |   |
-        ---------------------
-        |   rv  |   rv  | rv|
-        ---------------------
+    def _block_kernel_eval(X: torch.Tensor, Y: torch.Tensor, blocksize: int, kernel: nn.Module) -> torch.Tensor:
+        """Evaluates the kernel matrix using a block wise evaluation approach.
         Args:
             X (torch.Tensor): X input of kernel K(X, .)
             Y (torch.Tensor): Y input of kernel K(., Y)
@@ -226,43 +213,17 @@ class KernelFlowsCNNGP():
             kernel (nn.Module): Callable function that evaluates the kernel
 
         Returns:
-            np.ndarray: Evaluated kernel result
+            torch.Tensor: Evaluated kernel result
         """
-        with torch.no_grad():
-            kernel.eval()
-            blocks_vertical = X.shape[0] // blocksize
-            blocks_horizontal = Y.shape[0] // blocksize
-            remainder_vertical = X.shape[0] - blocks_vertical*blocksize
-            remainder_horizontal = Y.shape[0] - blocks_horizontal*blocksize
-            block_horizontal  = 0
-            k_matrix = np.ones((X.shape[0], Y.shape[0]), dtype=float)
-            #  Handling main chunk of the blocks
-            for block_vertical in tqdm(range(blocks_vertical)):
-                X_batch_train_vertical = X[block_vertical*blocksize:(block_vertical+1)*blocksize]
-                for block_horizontal in range(blocks_horizontal):
-                    Y_batch_train_horizontal = Y[block_horizontal*blocksize:(block_horizontal+1)*blocksize]
-                    k_matrix_batch = kernel(X_batch_train_vertical, Y_batch_train_horizontal)
-                    k_matrix[block_vertical*blocksize:(block_vertical+1)*blocksize, block_horizontal*blocksize:(block_horizontal+1)*blocksize] = k_matrix_batch.detach().numpy()
-                    del k_matrix_batch, Y_batch_train_horizontal
-                # Handling horizontal remainders
-                if remainder_horizontal > 0:
-                    Y_batch_train_horizontal = Y[(block_horizontal+1)*blocksize:(block_horizontal+1)*blocksize + remainder_horizontal]
-                    k_matrix_batch = kernel(X_batch_train_vertical, Y_batch_train_horizontal)
-                    k_matrix[block_vertical*blocksize:(block_vertical+1)*blocksize, (block_horizontal+1)*blocksize:(block_horizontal+1)*blocksize + remainder_horizontal] = k_matrix_batch.detach().numpy()
-
-            # Evaluating vertical remainder blocks rv
-            if remainder_vertical > 0:
-                X_batch_train_vertical = X[(block_vertical+1)*blocksize:(block_vertical+1)*blocksize + remainder_vertical]
-                for block_horizontal in range(blocks_horizontal):
-                    Y_batch_train_horizontal = Y[block_horizontal*blocksize:(block_horizontal+1)*blocksize]
-                    k_matrix_batch = kernel(X_batch_train_vertical, Y_batch_train_horizontal)
-                    k_matrix[(block_vertical+1)*blocksize:(block_vertical+1)*blocksize + remainder_vertical, block_horizontal*blocksize:(block_horizontal+1)*blocksize] = k_matrix_batch.detach().numpy()
-                if remainder_horizontal > 0:
-                    Y_batch_train_horizontal = Y[(block_horizontal+1)*blocksize:(block_horizontal+1)*blocksize + remainder_horizontal]
-                    k_matrix_batch = kernel(X_batch_train_vertical, Y_batch_train_horizontal)
-                    k_matrix[(block_vertical+1)*blocksize:(block_vertical+1)*blocksize + remainder_vertical, (block_horizontal+1)*blocksize:(block_horizontal+1)*blocksize + remainder_horizontal] = k_matrix_batch.detach().numpy()
+        k_matrix = torch.ones((X.shape[0], Y.shape[0]), dtype=torch.float32)
+        it = ProductIterator(blocksize, X, Y, worker_rank=0, n_workers=1)
+        for same, (i, x), (j, y) in it:
+            with torch.no_grad():
+                k = kernel(x, y, same, diag=False)
+            k_matrix[i:i+len(x), j:j+len(y)] = k
 
         return k_matrix
+
 
     @staticmethod
     def kernel_regression(X_test: torch.Tensor, X_train: torch.Tensor,
@@ -281,50 +242,30 @@ class KernelFlowsCNNGP():
         Returns:
             np.ndarray: Prediction result
         """
-
-
-        if blocksize is False:
-            with torch.no_grad():
-                k_matrix = kernel(X_train, X_train).detach().numpy()
-                k_matrix += regularization_lambda * np.eye(k_matrix.shape[0])
-                t_matrix = kernel(X_test, X_train).detach().numpy()
-                prediction = np.matmul(t_matrix, np.matmul(np.linalg.inv(k_matrix), Y_train.detach().numpy()))
-            return prediction
-        elif blocksize > X_train.shape[0] or blocksize > Y_train.shape[0]:
-            raise ValueError("Blocksize must be smaller or equal to the size of the input")
-
-
-
         # matrix block evaluation
-        k_matrix = np.ones((X_train.shape[0], X_train.shape[0]), dtype=float)
-        t_matrix = np.ones((X_test.shape[0], X_train.shape[0]), dtype=float)
-
         k_matrix = KernelFlowsCNNGP._block_kernel_eval(X=X_train,
                                                         Y=X_train,
                                                         blocksize=blocksize,
                                                         kernel=kernel)
 
-        k_matrix += regularization_lambda * np.eye(k_matrix.shape[0])
+        k_matrix += regularization_lambda * torch.eye(k_matrix.shape[0])
 
         t_matrix = KernelFlowsCNNGP._block_kernel_eval(X=X_test,
                                                         Y=X_train,
                                                         blocksize=blocksize,
                                                         kernel=kernel)
 
-        if save_kernel:
-            np.save(os.getcwd() + '/saved_kernels/' + save_kernel + '_k_matrix.npy', k_matrix)
-            np.save(os.getcwd() + '/saved_kernels/' + save_kernel + '_t_matrix.npy', t_matrix)
+        # if save_kernel:
+        #     np.save(os.getcwd() + '/saved_kernels/' + save_kernel + '_k_matrix.npy', k_matrix)
+        #     np.save(os.getcwd() + '/saved_kernels/' + save_kernel + '_t_matrix.npy', t_matrix)
 
 #########################VERIFY - REPLACING INVERSE WITH LEAST SQ AS PER MARTIN FOR NUMERICAL REASONS##################################
-        # prediction = np.matmul(t_matrix, np.matmul(np.linalg.inv(k_matrix), Y_train))
-        k_inv_Y, _, _, _ = lstsq(k_matrix, Y_train.detach().numpy(), cond=1e-8)
-        prediction_lstsq = np.matmul(t_matrix, k_inv_Y)
-
+        prediction = torch.matmul(t_matrix, torch.matmul(torch.linalg.inv(k_matrix), Y_train))
+        # k_inv_Y, _, _, _ = lstsq(k_matrix, Y_train.detach().numpy(), cond=1e-8)
+        # prediction_lstsq = np.matmul(t_matrix, k_inv_Y)
 #########################VERIFY - REPLACING INVERSE WITH LEAST SQ AS PER MARTIN FOR NUMERICAL REASONS##################################
-        return prediction_lstsq#, k_matrix, t_matrix
+        return prediction, k_matrix, t_matrix
 
-
-        # T matrix block evaluation
 
     def sample_size_linear(self, iterations, range_tuple):
         return np.linspace(range_tuple[0], range_tuple[1], num = iterations)[::-1]
@@ -350,6 +291,46 @@ class KernelFlowsCNNGP():
             pi[i][sample_indices[i]] = 1
 
         return pi
+
+    def _rho_blockwise(self, X_batch: torch.Tensor, Y_batch: torch.Tensor,
+            Y_sample: torch.Tensor, pi_matrix: torch.Tensor, block_size: int=200) -> torch.Tensor:
+        """Calculates the rho which acts as the loss function for the Kernel Flow method in blockwise fashion. It evaluates how good the results were even when the
+        training input was reduced by a factor.
+
+        Args:
+            X_batch (torch.Tensor): Training batch dataset
+            Y_batch (torch.Tensor): Training batch dataset labels in one hot encoding
+            Y_sample (torch.Tensor): Training sample dataset drawn from the batch in one hot encoding
+            pi_matrix (torch.Tensor): pi matrix
+
+        Returns:
+            torch.Tensor: Resulting value of rho
+        """
+        # rho = 1 - trace(Y_s^T * K(X_s, X_s)^-1 * Y_s) / trace(Y_b^T K(X_b, X_b)^-1 Y_b)
+        # Calculation of two kernels is expensive so we use proposition 3.2 Owhadi 2018
+        # rho = 1 - trace(Y_s^T * (pi_mat * K(X_b, X_b)^-1 pi_mat^T) * Y_s) / trace(Y_b^T K(X_b, X_b)^-1 Y_b)
+
+        # Calculate kernel theta = Kernel(X_Nf, X_Nf). NOTE: This is the most expensive step of the algorithm
+        theta = KernelFlowsCNNGP._block_kernel_eval(X=X_batch, Y=X_batch, kernel=self.cnn_gp_kernel, blocksize=block_size, progress=True)
+
+        # Calculate sample_matrix = pi_mat*theta*pi_mat^T
+        sample_matrix = torch.matmul(pi_matrix, torch.matmul(theta, torch.transpose(pi_matrix, 0, 1)))
+
+        # Add regularization
+        inverse_data = torch.linalg.inv(theta + self.regularization_lambda * torch.eye(theta.shape[0]))
+
+        # Delete theta matrix to free memory as it is not needed beyond this point
+
+        inverse_sample = torch.linalg.inv(sample_matrix + self.regularization_lambda * torch.eye(sample_matrix.shape[0]))
+
+        # Calculate numerator
+        numerator = torch.matmul(torch.transpose(Y_sample,0,1), torch.matmul(inverse_sample, Y_sample))
+        # Calculate denominator
+        denominator = torch.matmul(torch.transpose(Y_batch,0,1), torch.matmul(inverse_data, Y_batch))
+        # Calculate rho
+        rho = 1 - torch.trace(numerator)/torch.trace(denominator)
+
+        return rho
 
     def rho(self, X_batch: torch.Tensor, Y_batch: torch.Tensor,
             Y_sample: torch.Tensor, pi_matrix: torch.Tensor) -> torch.Tensor:
@@ -390,10 +371,9 @@ class KernelFlowsCNNGP():
         # Calculate rho
         rho = 1 - torch.trace(numerator)/torch.trace(denominator)
 
-        return rho #, sample_matrix, inverse_data, inverse_sample, numerator, denominator
+        return rho
 
-
-    def fit(self, X: torch.Tensor, Y: torch.Tensor, iterations: int, batch_size: int = False,
+    def _fit_autograd(self, X: torch.Tensor, Y: torch.Tensor, iterations: int, batch_size: int = False,
             sample_proportion: float = 0.5, optimizer: str = 'SGD', adaptive_size: bool = False):
         if optimizer not in ACCEPTED_OPTIMIZERS:
             raise RuntimeError("Optimizer should be a string in [SGD, ADAM]")
@@ -438,7 +418,7 @@ class KernelFlowsCNNGP():
             # Create batch N_f and sample N_c = p*N_f
             sample_indices, batch_indices = KernelFlowsCNNGP.batch_creation(dataset_size= self._X.shape[0],
                                                                             batch_size= batch_size,
-                                                                            sample_proportion= sample_proportion)
+                                                                            sample_proportion= sample_size)
             X_batch = self.X[batch_indices]
             Y_batch = self.Y[batch_indices]
             # X_sample = X_batch[sample_indices]
@@ -475,6 +455,111 @@ class KernelFlowsCNNGP():
 
             del rho
 
+    def _fit_finite_difference(self, X: torch.Tensor, Y: torch.Tensor, iterations: int, batch_size: int = False,
+            sample_proportion: float = 0.5, optimizer: str = 'SGD', adaptive_size: bool = False, dw: float = 1e-4):
+
+        if optimizer not in ACCEPTED_OPTIMIZERS:
+            raise RuntimeError("Optimizer should be a string in [SGD, ADAM]")
+        # self.cnn_gp_kernel.train()
+        # TODO: Incase N_I is the sample size that can be extracted for regression purposes,
+        # we do not need to save the entire training set. Only the N_I sampled.
+        # This will then have to be updated
+
+        if optimizer == 'SGD':
+            optimizer =  torch.optim.SGD(self.cnn_gp_kernel.parameters(), lr=self.learning_rate)
+        elif optimizer == 'ADAM':
+            optimizer =  torch.optim.Adam(self.cnn_gp_kernel.parameters(), lr=self.learning_rate)
+
+        self.X = X
+        self.Y = Y
+
+        # This is used for the adaptive sample decay
+        rho_100 = []
+        adaptive_mean = 0
+        adaptive_counter = 0
+
+        if adaptive_size == False or adaptive_size == "Dynamic":
+            sample_size = sample_proportion
+        elif adaptive_size == "Linear":
+            sample_size_array = self.sample_size_linear(iterations, self.adaptive_range)
+        else:
+            print("Sample size not recognized")
+
+        for i in tqdm(range(iterations)):
+            if adaptive_size == "Linear":
+                sample_size = sample_size_array[i]
+            elif adaptive_size == "Dynamic" and adaptive_counter == 100:
+                if adaptive_mean != 0:
+                    change = np.mean(rho_100) - adaptive_mean
+                else:
+                    change = 0
+                adaptive_mean = np.mean(rho_100)
+                rho_100 = []
+                sample_size += change - self.reduction_constant
+                adaptive_counter= 0
+
+            # Create batch N_f and sample N_c = p*N_f
+            sample_indices, batch_indices = KernelFlowsCNNGP.batch_creation(dataset_size= self._X.shape[0],
+                                                                            batch_size= batch_size,
+                                                                            sample_proportion= sample_size)
+            X_batch = self.X[batch_indices]
+            Y_batch = self.Y[batch_indices]
+            # X_sample = X_batch[sample_indices]
+            Y_sample = Y_batch[sample_indices]
+            N_f = len(batch_indices)
+            N_c = len(sample_indices)
+
+            # Calculate pi matrix
+            pi_matrix = KernelFlowsCNNGP.pi_matrix(sample_indices=sample_indices, dimension=(N_c, N_f))
+            optimizer.zero_grad()
+
+            # NOTE: Number of forward passes = No_parameters + 1 per iteration!
+            # For every parameter with torch.no_grad()
+                # get rho(w_i + dw/2) rho = self.rho(...) This can be changed to forward or backward differences as well
+                # get rho(w_i - dw/2) rho = self.rho(...) This can be changed to forward or backward differences as well
+                # d(rho)/dw_i = (rho(w_i + dw/2) - rho(w_i - dw/2)) / dw
+            # Apply update step in the end
+            with torch.no_grad():
+                rho = self._rho_blockwise(X_batch=X_batch, Y_batch=Y_batch, Y_sample=Y_sample, pi_matrix=pi_matrix, block_size=300)
+            # rho_control = self.rho(X_batch=X_batch, Y_batch=Y_batch, Y_sample=Y_sample, pi_matrix=pi_matrix)
+            # rho_control.backward()
+
+            if  rho > 1.01 or rho < -0.1:
+                warnings.warn("Warning, rho outside [0,1]")
+                print(f"""Warning, rho outside [0,1]. rho = {rho}""")
+
+            if torch.isnan(rho):
+                raise ValueError("rho is NaN!")
+
+            # Calculate gradients using finite difference
+            for param in self.cnn_gp_kernel.parameters():
+                # rho = self.rho()
+                # We do not wish to track gradients as we approximate them using finite differences
+                with torch.no_grad():
+                    old_param = param.data
+                    param.data = param.data + dw
+                    rho_dw = self._rho_blockwise(X_batch=X_batch, Y_batch=Y_batch, Y_sample=Y_sample, pi_matrix=pi_matrix, block_size=300)
+                    drho_dw = (rho_dw - rho) / dw
+                    param.data = old_param
+                    param.grad = drho_dw.unsqueeze(0).to(param.device)
+            # Optimization step
+            optimizer.step()
+
+            # Store value of rho
+            self.rho_values.append(rho.detach().numpy())
+
+            del rho
+
+
+    def fit(self, X: torch.Tensor, Y: torch.Tensor, iterations: int, batch_size: int = False,
+            sample_proportion: float = 0.5, method:str = 'autograd', optimizer: str = 'SGD',
+            dw: float = 0.001, adaptive_size: bool = False):
+        if method == 'autograd':
+            self._fit_autograd(X=X, Y=Y, iterations=iterations, batch_size=batch_size, sample_proportion=sample_proportion, optimizer=optimizer, adaptive_size=adaptive_size)
+        elif method == 'finite difference':
+            self._fit_finite_difference(X=X, Y=Y, iterations=iterations, batch_size=batch_size, sample_proportion=sample_proportion, optimizer=optimizer, dw=dw, adaptive_size=adaptive_size)
+        else:
+            raise ValueError("Method not understood. Please use either 'autograd' or 'finite difference'")
 
     def predict(self, X_test: torch.Tensor, N_I: int = False) -> torch.Tensor:
         """Predict method for trained Kernel Flow model

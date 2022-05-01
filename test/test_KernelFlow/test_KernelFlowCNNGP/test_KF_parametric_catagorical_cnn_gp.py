@@ -138,7 +138,7 @@ def test_blocked_kernel_eval_square_result():
         k_blocked = KernelFlowsCNNGP._block_kernel_eval(X=X,
                                                         Y=X,
                                                         blocksize=25,
-                                                        kernel=model_untrained)
+                                                        kernel=model_untrained).numpy()
 
     assert np.all(np.equal(k_full, k_blocked))
 
@@ -165,8 +165,7 @@ def test_blocked_kernel_eval_rec_result():
         k_blocked = KernelFlowsCNNGP._block_kernel_eval(X=X[:125],
                                                         Y=X[:125],
                                                         blocksize=50,
-                                                        kernel=model_untrained)
-
+                                                        kernel=model_untrained).numpy()
         assert np.all(np.equal(k_full, k_blocked))
 
         # Complete Kernel
@@ -176,7 +175,7 @@ def test_blocked_kernel_eval_rec_result():
         k_blocked = KernelFlowsCNNGP._block_kernel_eval(X=X[:120],
                                                         Y=X[:125],
                                                         blocksize=50,
-                                                        kernel=model_untrained)
+                                                        kernel=model_untrained).numpy()
 
         assert np.all(np.equal(k_full, k_blocked))
 
@@ -187,7 +186,7 @@ def test_blocked_kernel_eval_rec_result():
         k_blocked = KernelFlowsCNNGP._block_kernel_eval(X=X[:116],
                                                         Y=X[:110],
                                                         blocksize=50,
-                                                        kernel=model_untrained)
+                                                        kernel=model_untrained).numpy()
 
         assert np.all(np.equal(k_full, k_blocked))
 
@@ -198,7 +197,7 @@ def test_blocked_kernel_eval_rec_result():
         k_blocked = KernelFlowsCNNGP._block_kernel_eval(X=X[:125],
                                                         Y=X[:125],
                                                         blocksize=100,
-                                                        kernel=model_untrained)
+                                                        kernel=model_untrained).numpy()
 
         assert np.all(np.equal(k_full, k_blocked))
 
@@ -209,6 +208,6 @@ def test_blocked_kernel_eval_rec_result():
         k_blocked = KernelFlowsCNNGP._block_kernel_eval(X=X[:1000],
                                                         Y=X[:100],
                                                         blocksize=100,
-                                                        kernel=model_untrained)
+                                                        kernel=model_untrained).numpy()
 
         assert np.all(np.equal(k_full, k_blocked))

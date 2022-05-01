@@ -13,7 +13,6 @@ import torchvision.transforms as T
 from torch import autograd
 import torchviz
 import torch.nn as nn
-
 from cnn_gp.kernels import ReLUCNNGP
 import torch.multiprocessing as mp
 
@@ -85,6 +84,7 @@ if __name__ == "__main__":
     dataiter = iter(trainloader)
     X_train, Y_train = dataiter.next()
     Y_train = F.one_hot(Y_train, 10).to(torch.float32)
+    Y_train[Y_train == 0] = -1.0
 
     dataiter_val = iter(valloader)
     X_test, Y_test = dataiter_val.next()
@@ -100,7 +100,6 @@ if __name__ == "__main__":
     # print(model(X_train[:100],X_train[:100]))
     # KFCNNGP = KernelFlowsCNNGP(cnn_gp_kernel=model)
     # KFCNNGP.fit(X_train, Y_train, 1, 100)
-
 
     # var_bias = 7.86
     # var_weight = 2.79
@@ -135,8 +134,8 @@ if __name__ == "__main__":
     # K_xx = model(X_train[0:10], X_train[0:10])#, X_train[0:10])
 
     pi_mat = KernelFlowsCNNGP.pi_matrix(sample_indices=np.array([1,3,5,7,9]), dimension=(5,10))
-    rho_val = rho(X_train[:10], Y_train[:10].to(torch.float32), Y_sample=Y_train[np.array([1,3,5,7,9])].to(torch.float32), pi_matrix=pi_mat, kernel=model)
-    # rho_val = rho(X_train[-10:], Y_train[-10:].to(torch.float32), Y_sample=Y_train[np.array([1,3,5,7,9])].to(torch.float32), pi_matrix=pi_mat, kernel=model)
+    # rho_val = rho(X_train[:10], Y_train[:10].to(torch.float32), Y_sample=Y_train[np.array([1,3,5,7,9])].to(torch.float32), pi_matrix=pi_mat, kernel=model)
+    rho_val = rho(X_train[-10:], Y_train[-10:].to(torch.float32), Y_sample=Y_train[np.array([1,3,5,7,9])].to(torch.float32), pi_matrix=pi_mat, kernel=model)
     rho_val.backward()
     for params in model.parameters():
         print(params, params.grad)
@@ -151,6 +150,6 @@ if __name__ == "__main__":
     relucnngp = ReLUCNNGP.apply
     # input = (torch.ones((5,5,1,1),dtype=torch.double,requires_grad=True), torch.ones((5,1,1,1),dtype=torch.double,requires_grad=True), torch.ones((5,1,1),dtype=torch.double,requires_grad=True))
     input = (torch.rand((5,5,1,1),dtype=torch.double,requires_grad=True), torch.rand((5,1,1,1),dtype=torch.double,requires_grad=True), torch.rand((5,1,1),dtype=torch.double,requires_grad=True))
-    test = gradcheck(relucnngp, input)#, eps=1e-10, atol=1e-3, rtol=1e-4)
+    test = gradcheck(relucnngp, input, atol=1e-3, rtol=1e-4)
     print(test)
     # torchviz.make_dot(rho_val, params=dict(model.named_parameters()))

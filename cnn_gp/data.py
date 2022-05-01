@@ -9,7 +9,7 @@ __all__ = ('DatasetFromConfig', 'ProductIterator', 'DiagIterator',
 
 
 def _this_worker_batch(N_batches, worker_rank, n_workers):
-    batches_per_worker = np.zeros([n_workers], dtype=np.int)
+    batches_per_worker = np.zeros([n_workers], dtype=np.int64)
     batches_per_worker[:] = N_batches // n_workers
     batches_per_worker[:N_batches % n_workers] += 1
 
