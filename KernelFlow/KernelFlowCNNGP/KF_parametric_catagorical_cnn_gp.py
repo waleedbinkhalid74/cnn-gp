@@ -31,7 +31,7 @@ class KernelFlowsCNNGP():
     """
     def __init__(self, cnn_gp_kernel: NNGPKernel, lr: float = 0.1,
                  beta: float = 0.9, regularization_lambda: float = 0.000001,
-                 reduction_constant: float = 0.0):
+                 reduction_constant: float = 0.0, blocksize: int = 200):
         """Constructor for the Kernel Flow class that uses convolutional neural networks induced gaussian process kernels
            (Note, can also work with other kernels but they need to be a torch.nn.Module. See kernels folder for examples)
 
@@ -51,6 +51,7 @@ class KernelFlowsCNNGP():
         self.beta = beta
         self.reduction_constant = reduction_constant
         self.regularization_lambda = regularization_lambda
+        self.block_size = blocksize # Number of images to process at once when evaluating the Kernel
 
         self._X: torch.Tensor = None
         self._Y: torch.Tensor = None
@@ -204,7 +205,8 @@ class KernelFlowsCNNGP():
 
 
     @staticmethod
-    def _block_kernel_eval(X: torch.Tensor, Y: torch.Tensor, blocksize: int, kernel: nn.Module) -> torch.Tensor:
+    def _block_kernel_eval(X: torch.Tensor, Y: torch.Tensor, blocksize: int,
+                           kernel: nn.Module, worker_rank: int=0, n_workers: int=1) -> torch.Tensor:
         """Evaluates the kernel matrix using a block wise evaluation approach.
         Args:
             X (torch.Tensor): X input of kernel K(X, .)
@@ -216,10 +218,9 @@ class KernelFlowsCNNGP():
             torch.Tensor: Evaluated kernel result
         """
         k_matrix = torch.ones((X.shape[0], Y.shape[0]), dtype=torch.float32)
-        it = ProductIterator(blocksize, X, Y, worker_rank=0, n_workers=1)
+        it = ProductIterator(blocksize, X, Y, worker_rank=worker_rank, n_workers=n_workers)
         for same, (i, x), (j, y) in it:
-            with torch.no_grad():
-                k = kernel(x, y, same, diag=False)
+            k = kernel(x, y, same, diag=False)
             k_matrix[i:i+len(x), j:j+len(y)] = k
 
         return k_matrix
@@ -228,7 +229,8 @@ class KernelFlowsCNNGP():
     @staticmethod
     def kernel_regression(X_test: torch.Tensor, X_train: torch.Tensor,
                           Y_train: torch.Tensor, kernel: nn.Module, regularization_lambda = 0.0001,
-                          blocksize: int = False, save_kernel: str = False) -> np.ndarray:
+                          blocksize: int = 200, save_kernel: str = False,
+                          worker_rank:int = 0, n_workers: int=1) -> np.ndarray:
         """Applies Kernel regression to provided data
 
         Args:
@@ -243,21 +245,27 @@ class KernelFlowsCNNGP():
             np.ndarray: Prediction result
         """
         # matrix block evaluation
-        k_matrix = KernelFlowsCNNGP._block_kernel_eval(X=X_train,
-                                                        Y=X_train,
-                                                        blocksize=blocksize,
-                                                        kernel=kernel)
+        kwargs = dict(worker_rank=worker_rank, n_workers=n_workers)
+
+        with torch.no_grad():
+            k_matrix = KernelFlowsCNNGP._block_kernel_eval(X=X_train,
+                                                            Y=X_train,
+                                                            blocksize=blocksize,
+                                                            kernel=kernel,
+                                                            **kwargs)
+
+            t_matrix = KernelFlowsCNNGP._block_kernel_eval(X=X_test,
+                                                            Y=X_train,
+                                                            blocksize=blocksize,
+                                                            kernel=kernel,
+                                                            **kwargs)
 
         k_matrix += regularization_lambda * torch.eye(k_matrix.shape[0])
 
-        t_matrix = KernelFlowsCNNGP._block_kernel_eval(X=X_test,
-                                                        Y=X_train,
-                                                        blocksize=blocksize,
-                                                        kernel=kernel)
 
-        # if save_kernel:
-        #     np.save(os.getcwd() + '/saved_kernels/' + save_kernel + '_k_matrix.npy', k_matrix)
-        #     np.save(os.getcwd() + '/saved_kernels/' + save_kernel + '_t_matrix.npy', t_matrix)
+        if save_kernel:
+            torch.save(os.getcwd() + '/saved_kernels/' + save_kernel + '_k_matrix.pt', k_matrix)
+            torch.save(os.getcwd() + '/saved_kernels/' + save_kernel + '_t_matrix.pt', t_matrix)
 
 #########################VERIFY - REPLACING INVERSE WITH LEAST SQ AS PER MARTIN FOR NUMERICAL REASONS##################################
         prediction = torch.matmul(t_matrix, torch.matmul(torch.linalg.inv(k_matrix), Y_train))
@@ -292,46 +300,6 @@ class KernelFlowsCNNGP():
 
         return pi
 
-    def _rho_blockwise(self, X_batch: torch.Tensor, Y_batch: torch.Tensor,
-            Y_sample: torch.Tensor, pi_matrix: torch.Tensor, block_size: int=200) -> torch.Tensor:
-        """Calculates the rho which acts as the loss function for the Kernel Flow method in blockwise fashion. It evaluates how good the results were even when the
-        training input was reduced by a factor.
-
-        Args:
-            X_batch (torch.Tensor): Training batch dataset
-            Y_batch (torch.Tensor): Training batch dataset labels in one hot encoding
-            Y_sample (torch.Tensor): Training sample dataset drawn from the batch in one hot encoding
-            pi_matrix (torch.Tensor): pi matrix
-
-        Returns:
-            torch.Tensor: Resulting value of rho
-        """
-        # rho = 1 - trace(Y_s^T * K(X_s, X_s)^-1 * Y_s) / trace(Y_b^T K(X_b, X_b)^-1 Y_b)
-        # Calculation of two kernels is expensive so we use proposition 3.2 Owhadi 2018
-        # rho = 1 - trace(Y_s^T * (pi_mat * K(X_b, X_b)^-1 pi_mat^T) * Y_s) / trace(Y_b^T K(X_b, X_b)^-1 Y_b)
-
-        # Calculate kernel theta = Kernel(X_Nf, X_Nf). NOTE: This is the most expensive step of the algorithm
-        theta = KernelFlowsCNNGP._block_kernel_eval(X=X_batch, Y=X_batch, kernel=self.cnn_gp_kernel, blocksize=block_size, progress=True)
-
-        # Calculate sample_matrix = pi_mat*theta*pi_mat^T
-        sample_matrix = torch.matmul(pi_matrix, torch.matmul(theta, torch.transpose(pi_matrix, 0, 1)))
-
-        # Add regularization
-        inverse_data = torch.linalg.inv(theta + self.regularization_lambda * torch.eye(theta.shape[0]))
-
-        # Delete theta matrix to free memory as it is not needed beyond this point
-
-        inverse_sample = torch.linalg.inv(sample_matrix + self.regularization_lambda * torch.eye(sample_matrix.shape[0]))
-
-        # Calculate numerator
-        numerator = torch.matmul(torch.transpose(Y_sample,0,1), torch.matmul(inverse_sample, Y_sample))
-        # Calculate denominator
-        denominator = torch.matmul(torch.transpose(Y_batch,0,1), torch.matmul(inverse_data, Y_batch))
-        # Calculate rho
-        rho = 1 - torch.trace(numerator)/torch.trace(denominator)
-
-        return rho
-
     def rho(self, X_batch: torch.Tensor, Y_batch: torch.Tensor,
             Y_sample: torch.Tensor, pi_matrix: torch.Tensor) -> torch.Tensor:
         """Calculates the rho which acts as the loss function for the Kernel Flow method. It evaluates how good the results were even when the
@@ -351,7 +319,9 @@ class KernelFlowsCNNGP():
         # rho = 1 - trace(Y_s^T * (pi_mat * K(X_b, X_b)^-1 pi_mat^T) * Y_s) / trace(Y_b^T K(X_b, X_b)^-1 Y_b)
 
         # Calculate kernel theta = Kernel(X_Nf, X_Nf). NOTE: This is the most expensive step of the algorithm
-        theta = self.cnn_gp_kernel(X_batch, X_batch)
+        theta = KernelFlowsCNNGP._block_kernel_eval(X=X_batch,Y=X_batch,kernel=self.cnn_gp_kernel,
+                                            blocksize=self.block_size, worker_rank=0, n_workers=1)
+        # theta = self.cnn_gp_kernel(X_batch, X_batch)
 
         # Calculate sample_matrix = pi_mat*theta*pi_mat^T
         sample_matrix = torch.matmul(pi_matrix, torch.matmul(theta, torch.transpose(pi_matrix, 0, 1)))
@@ -429,12 +399,7 @@ class KernelFlowsCNNGP():
             # Calculate pi matrix
             pi_matrix = KernelFlowsCNNGP.pi_matrix(sample_indices=sample_indices, dimension=(N_c, N_f))
 
-            # NOTE: The second code snippet does not zero the memory of each individual parameter, also the subsequent
-            #       backward pass uses assignment instead of addition to store gradients, this reduces the number of memory operations.
-            # For reference: https://pytorch.org/tutorials/recipes/recipes/tuning_guide.html
             optimizer.zero_grad()
-            # for param in self.cnn_gp_kernel.parameters():
-            #     param.grad = None
 
             # Calculate rho
             rho = self.rho(X_batch=X_batch, Y_batch=Y_batch, Y_sample=Y_sample, pi_matrix=pi_matrix)
@@ -520,7 +485,8 @@ class KernelFlowsCNNGP():
                 # d(rho)/dw_i = (rho(w_i + dw/2) - rho(w_i - dw/2)) / dw
             # Apply update step in the end
             with torch.no_grad():
-                rho = self._rho_blockwise(X_batch=X_batch, Y_batch=Y_batch, Y_sample=Y_sample, pi_matrix=pi_matrix, block_size=300)
+                rho = self.rho(X_batch=X_batch, Y_batch=Y_batch, Y_sample=Y_sample,
+                               pi_matrix=pi_matrix)
             # rho_control = self.rho(X_batch=X_batch, Y_batch=Y_batch, Y_sample=Y_sample, pi_matrix=pi_matrix)
             # rho_control.backward()
 
@@ -538,7 +504,8 @@ class KernelFlowsCNNGP():
                 with torch.no_grad():
                     old_param = param.data
                     param.data = param.data + dw
-                    rho_dw = self._rho_blockwise(X_batch=X_batch, Y_batch=Y_batch, Y_sample=Y_sample, pi_matrix=pi_matrix, block_size=300)
+                    rho_dw = self.rho(X_batch=X_batch, Y_batch=Y_batch, Y_sample=Y_sample,
+                                      pi_matrix=pi_matrix)
                     drho_dw = (rho_dw - rho) / dw
                     param.data = old_param
                     param.grad = drho_dw.unsqueeze(0).to(param.device)
@@ -551,13 +518,35 @@ class KernelFlowsCNNGP():
             del rho
 
 
-    def fit(self, X: torch.Tensor, Y: torch.Tensor, iterations: int, batch_size: int = False,
+    def fit(self, X: torch.Tensor, Y: torch.Tensor, iterations: int, block_size: int = False,
             sample_proportion: float = 0.5, method:str = 'autograd', optimizer: str = 'SGD',
             dw: float = 0.001, adaptive_size: bool = False):
+        """Fits the Kernel with optimial hyperparameters based on the Kernel Flow algorithm
+
+        Args:
+            X (torch.Tensor): Training dataset values
+            Y (torch.Tensor): Training dataset labels
+            iterations (int): Number of iterations
+            batch_size (int, optional): Batch size for block evaluations. Defaults to False.
+            sample_proportion (float, optional): Proportion of the batch against which rho is calculated. Defaults to 0.5.
+            method (str, optional): Differenciation method. Defaults to 'autograd'.
+            optimizer (str, optional): Optimization technique. Defaults to 'SGD'.
+            dw (float, optional): Increment perturbation for finite difference. Not needed for autograd. Defaults to 0.001.
+            adaptive_size (bool, optional): If sample proportion should change with iterations. Defaults to False.
+
+        Raises:
+            ValueError: Incase incorrect differenciation strategy is selected
+        """
+        if block_size is not False:
+            self.block_size = block_size
         if method == 'autograd':
-            self._fit_autograd(X=X, Y=Y, iterations=iterations, batch_size=batch_size, sample_proportion=sample_proportion, optimizer=optimizer, adaptive_size=adaptive_size)
+            self._fit_autograd(X=X, Y=Y, iterations=iterations, batch_size=block_size,
+                               sample_proportion=sample_proportion, optimizer=optimizer,
+                               adaptive_size=adaptive_size)
         elif method == 'finite difference':
-            self._fit_finite_difference(X=X, Y=Y, iterations=iterations, batch_size=batch_size, sample_proportion=sample_proportion, optimizer=optimizer, dw=dw, adaptive_size=adaptive_size)
+            self._fit_finite_difference(X=X, Y=Y, iterations=iterations, batch_size=block_size,
+                                        sample_proportion=sample_proportion, optimizer=optimizer,
+                                        dw=dw, adaptive_size=adaptive_size)
         else:
             raise ValueError("Method not understood. Please use either 'autograd' or 'finite difference'")
 
@@ -583,14 +572,10 @@ class KernelFlowsCNNGP():
         X_batch = self.X[batch_indices]
         Y_batch = self.Y[batch_indices]
 
-        del self._X
-        del self._Y
-
-        with torch.no_grad():
-            prediction = KernelFlowsCNNGP.kernel_regression(X_train= X_batch,
-                                                            Y_train= Y_batch,
-                                                            X_test=X_test,
-                                                            kernel=self.cnn_gp_kernel,
-                                                            regularization_lambda=self.regularization_lambda)
+        prediction = KernelFlowsCNNGP.kernel_regression(X_train= X_batch,
+                                                        Y_train= Y_batch,
+                                                        X_test=X_test,
+                                                        kernel=self.cnn_gp_kernel,
+                                                        regularization_lambda=self.regularization_lambda)
 
         return prediction
