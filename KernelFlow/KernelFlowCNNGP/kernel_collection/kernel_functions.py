@@ -22,7 +22,7 @@ class RBF_Kernel(nn.Module):
 
         return norm_diff
 
-    def __call__(self, matrix_1, matrix_2):
+    def __call__(self, matrix_1, matrix_2, same = None, diag= None):
         matrix = self.norm_matrix(matrix_1, matrix_2)
         K =  torch.exp(-matrix/ (2* self.sigma**2))
         return K

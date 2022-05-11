@@ -1,14 +1,115 @@
+from turtle import forward
+from typing import Tuple
 import torch as t
 import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
 from .kernel_patch import ConvKP, NonlinKP
 import math
-
+import numpy as np
+# from numpy.fft import fft2, ifft2, fftn, ifftn
+from torch import autograd
 
 __all__ = ("NNGPKernel", "Conv2d", "ReLU", "Sequential", "Mixture",
-           "MixtureModule", "Sum", "SumModule", "resnet_block")
+           "MixtureModule", "Sum", "SumModule", "resnet_block", "ReLUCNNGP")
 
+class ReLUCNNGP(autograd.Function):
+    """Custom implementation of autograd function for ReLU Layer
+
+    Args:
+        autograd : torch.autograd.Function class
+
+    """
+    @staticmethod
+    def forward(ctx, xy: t.Tensor, xx: t.Tensor, yy: t.Tensor) -> t.Tensor:
+        """Forward evaluation of K(X,X') for the ReLU Layer in CNN GP
+        We need to calculate (xy, xx, yy == c, v₁, v₂ == K(X,X'), K(X,X), K(X',X')):
+        √(v₁v₂) / 2π ⎷1 - c²/v₁v₂ + (π - θ)c / √(v₁v₂)
+
+        which is equivalent to:
+        1/2π ( √(v₁v₂ - c²) + (π - θ)c )
+
+        # NOTE we divide by 2 to avoid multiplying the ReLU by sqrt(2)
+        Args:
+            ctx : context object for storage purposes of backward pass
+            xy (t.Tensor): K(X,X')
+            xx (t.Tensor): K(X,X)
+            yy (t.Tensor): K(X',X')
+
+        Returns:
+            t.Tensor: V(X,X')
+        """
+        ctx.save_for_backward(xy, xx, yy)
+        f32_tiny = np.finfo(np.float32).tiny
+        xx_yy = xx*yy + f32_tiny
+        eps = 1e-6
+        # NOTE: Replaced rsqrt with 1/t.sqrt()+eps. Check with Prof For accuracy
+        inverse_sqrt_xx_yy = 1 / (t.sqrt(xx_yy) + eps)
+        # inverse_sqrt_xx_yy = t.rsqrt(xx_yy)
+        # Clamp these so the outputs are not NaN
+        # Use small eps to avoid NaN during backpropagation
+        cos_theta = (xy * inverse_sqrt_xx_yy).clamp(-1+eps, 1-eps)
+        del inverse_sqrt_xx_yy
+        sin_theta = t.sqrt((xx_yy - xy**2).clamp(min=eps))
+        del xx_yy
+        theta = t.acos(cos_theta)
+        del cos_theta
+        V_xy = (sin_theta + (math.pi - theta)*xy) / (2*math.pi)
+        return V_xy
+
+    @staticmethod
+    def backward(ctx, grad_output: t.Tensor) -> Tuple[t.Tensor, t.Tensor, t.Tensor]:
+        """Evaluate the backward pass for ReLU Layer
+        We need to differentiate (xy, xx, yy == c, v₁, v₂ == K(X,X'), K(X,X), K(X',X')):
+        relu = 1/2π ( √(v₁v₂ - c²) + (π - θ)c )
+        wrt c and a=v₁v₂ and subsequently apply the chain rule i.e.
+        d(relu)/dv₁ = d(relu)/da * da/dv₁
+        d(relu)/dv₂ = d(relu)/da * da/dv₂
+
+        # NOTE: For differentiation wrt c=xy see https://www.wolframalpha.com/input?i=differentiate+%28sqrt%28a*b+-+c%5E2%29+%2B+%28pi+-+arccos%28c%2Fsqrt%28a*b%29%29%29*c%29%2F%282pi%29+wrt+c
+        # NOTE: For differentiation wrt a=xx_yy see https://www.wolframalpha.com/input?i=differentiate+%28sqrt%28a+-+c%5E2%29+%2B+%28pi+-+arccos%28c%2Fsqrt%28a%29%29%29*c%29%2F%282pi%29+wrt+a
+
+        where da/dv₂ = v₁ & da/dv₁ = v₂
+
+        Args:
+            ctx (): context object for retreiving forward pass variable
+            grad_output (t.Tensor): Gradient from output layer
+
+        Returns:
+            Tuple[t.Tensor, t.Tensor, t.Tensor]: Gradients wrt K(X,X'), K(X,X) and K(X',X') respectively
+        """
+        xy, xx, yy = ctx.saved_tensors
+        f32_tiny = np.finfo(np.float32).tiny
+        eps = 0* 1e-10
+        xx_yy = xx*yy + f32_tiny
+        # NOTE: See https://www.wolframalpha.com/input?i=differentiate+%28sqrt%28a*b+-+c%5E2%29+%2B+%28pi+-+arccos%28c%2Fsqrt%28a*b%29%29%29*c%29%2F%282pi%29+wrt+c for differentiation wrt xy
+        term_3 = t.acos((xy / (t.sqrt(xx_yy))).clamp(-1, 1))
+
+        # Convert nans to 0 and inf to large numbers
+        term_3 = t.nan_to_num(term_3)
+
+        # NOTE: We can remove term_1 and term_2 as they cancel each other out in exact arthmetics
+        diff_xy = (- term_3 + math.pi) / (2*math.pi)
+        diff_xy_chained = grad_output * diff_xy
+
+        # NOTE: See https://www.wolframalpha.com/input?i=differentiate+%28sqrt%28a+-+c%5E2%29+%2B+%28pi+-+arccos%28c%2Fsqrt%28a%29%29%29*c%29%2F%282pi%29+wrt+a for differentiation wrt xx_yy.
+        sin_theta = (xx_yy - xy**2).clamp(min=eps)
+        term_1 = 1 / (2 * t.sqrt(sin_theta))
+        term_2 = xy**2 / (2 * xx_yy * t.sqrt(sin_theta))
+
+        # Convert nans to 0 and inf to large numbers
+        # NOTE: The two terms can be infinite and we wish the result to be zero if both terms are inifnity
+        # In pytorch inf - inf is nan so we convert the nans to zero
+        diff_xx_yy = (term_1 - term_2) / (2 * math.pi)
+        diff_xx_yy = t.nan_to_num(diff_xx_yy)
+
+        # diff_xx_yy = term_1 * (1 - term_2) / (2 * math.pi)
+        diff_xx = yy * diff_xx_yy
+        diff_xx_chained = grad_output * diff_xx
+        diff_yy = xx * diff_xx_yy
+        diff_yy_chained = grad_output * diff_yy
+
+        return diff_xy_chained, diff_xx_chained, diff_yy_chained
 
 class NNGPKernel(nn.Module):
     """
@@ -34,8 +135,8 @@ class NNGPKernel(nn.Module):
         assert x.size(2) == y.size(2)
         assert x.size(3) == y.size(3)
 
-        N1 = x.size(0)
-        N2 = y.size(0)
+        self.N1 = x.size(0)
+        self.N2 = y.size(0)
         C = x.size(1)
         W = x.size(2)
         H = x.size(3)
@@ -44,7 +145,7 @@ class NNGPKernel(nn.Module):
         if diag:
             xy = (x*y).mean(1, keepdim=True)
         else:
-            xy = (x.unsqueeze(1)*y).mean(2).view(N1*N2, 1, W, H)
+            xy = (x.unsqueeze(1)*y).mean(2).view(self.N1*self.N2, 1, W, H)
         xx = (x**2).mean(1, keepdim=True)
         yy = (y**2).mean(1, keepdim=True)
 
@@ -52,9 +153,9 @@ class NNGPKernel(nn.Module):
         final_kp = self.propagate(initial_kp)
         r = NonlinKP(final_kp).xy
         if diag:
-            return r.view(N1)
+            return r.view(self.N1)
         else:
-            return r.view(N1, N2)
+            return r.view(self.N1, self.N2)
 
 
 class Conv2d(NNGPKernel):
@@ -65,6 +166,7 @@ class Conv2d(NNGPKernel):
         self.kernel_size = kernel_size
         self.stride = stride
         self.dilation = dilation
+        self.kp = None
         # Not needed as they will be registered separately as parameters
         # self.var_weight = var_weight
         # self.var_bias = var_bias
@@ -76,45 +178,37 @@ class Conv2d(NNGPKernel):
         else:
             self.padding = padding
 
-    ###########################REMOVED KERNEL CALCULATION AND ADDED VARIANCES AS TRAINABLE PARAMETERS###########################
-        weight_var = nn.Parameter(t.Tensor([var_weight]))
-        self.register_parameter('var_weight', weight_var)
-        bias_var = nn.Parameter(t.Tensor([var_bias]))
-        self.register_parameter('var_bias', bias_var)
+        self.var_weight = nn.Parameter(t.Tensor([var_weight]))
+        self.var_bias = nn.Parameter(t.Tensor([var_bias]))
 
-        # if self.kernel_has_row_of_zeros:
-        #     # We need to pad one side larger than the other. We just make a
-        #     # kernel that is slightly too large and make its last column and
-        #     # row zeros.
-        #     kernel = t.ones(1, 1, self.kernel_size+1, self.kernel_size+1)
-        #     kernel[:, :, 0, :] = 0.
-        #     kernel[:, :, :, 0] = 0.
-        # else:
-        #     kernel = t.ones(1, 1, self.kernel_size, self.kernel_size)
-        # self.register_buffer('kernel', kernel
-        #                      * (self.var_weight / self.kernel_size**2))
-        ###########################REMOVED KERNEL CALCULATION AND ADDED VARIANCES AS TRAINABLE PARAMETERS###########################
-        self.in_channel_multiplier, self.out_channel_multiplier = (
-            in_channel_multiplier, out_channel_multiplier)
-
-    def propagate(self, kp):
-        kp = ConvKP(kp)
-        ###########################ADDED CALCULATION OF KERNEL FROM TRAINABLE VARIANCES###########################
         if self.kernel_has_row_of_zeros:
             # We need to pad one side larger than the other. We just make a
             # kernel that is slightly too large and make its last column and
             # row zeros.
-            kernel = t.ones(1, 1, self.kernel_size+1, self.kernel_size+1)
-            kernel[:, :, 0, :] = 0.
-            kernel[:, :, :, 0] = 0.
+            self.kernel = t.ones(1, 1, self.kernel_size+1, self.kernel_size+1)
+            self.kernel[:, :, 0, :] = 0.
+            self.kernel[:, :, :, 0] = 0.
         else:
-            kernel = t.ones(1, 1, self.kernel_size, self.kernel_size)
-        kernel = kernel * (self.var_weight / self.kernel_size**2)
+            self.kernel = t.ones(1, 1, self.kernel_size, self.kernel_size)
+
+        self.kernel = self.kernel / self.kernel_size**2
+        self.in_channel_multiplier, self.out_channel_multiplier = (
+            in_channel_multiplier, out_channel_multiplier)
+
+
+    def propagate(self, kp):
+        kp = ConvKP(kp)
+        # NOTE: Only collect data otherwise autograd computational graph will also be saved which is memory intensive
+        # This will be used in our custom backward pass
+        # self.kp = ConvKP(kp.same, kp.diag, kp.xy.data, kp.xx.data, kp.yy.data)
+        ###########################ADDED CALCULATION OF KERNEL FROM TRAINABLE VARIANCES###########################
+        kernel = self.kernel * self.var_weight
         ###########################ADDED CALCULATION OF KERNEL FROM TRAINABLE VARIANCES###########################
         def f(patch):
             return (F.conv2d(patch, kernel, stride=self.stride, # CHANGE self.kernel to kernel
                              padding=self.padding, dilation=self.dilation)
                     + self.var_bias)
+
         return ConvKP(kp.same, kp.diag, f(kp.xy), f(kp.xx), f(kp.yy))
 
     def nn(self, channels, in_channels=None, out_channels=None):
@@ -145,14 +239,19 @@ class Conv2d(NNGPKernel):
         return 1
 
 
+
 class ReLU(NNGPKernel):
     """
     A ReLU nonlinearity, the covariance is numerically stabilised by clamping
     values.
     """
     f32_tiny = np.finfo(np.float32).tiny
+
     def propagate(self, kp):
         kp = NonlinKP(kp)
+        # NOTE: Only collect data otherwise autograd computational graph will also be saved which is memory intensive
+        # This will be used in our custom backward pass
+        # self.kp = NonlinKP(kp.same, kp.diag, kp.xy.data, kp.xx.data, kp.yy.data)
         """
         We need to calculate (xy, xx, yy == c, v₁, v₂):
                       ⏤⏤⏤⏤⏤⏤⏤⏤⏤⏤⏤⏤⏤⏤⏤⏤⏤⏤
@@ -162,25 +261,31 @@ class ReLU(NNGPKernel):
         1/2π ( √(v₁v₂ - c²) + (π - θ)c )
 
         # NOTE we divide by 2 to avoid multiplying the ReLU by sqrt(2)
+        # NOTE this entire logic is encapsulated in a custom autograd function along with its differential
         """
-        xx_yy = kp.xx * kp.yy + self.f32_tiny
 
-        # Clamp these so the outputs are not NaN
-        # Use small eps to avoid NaN during backpropagation
-        eps = 1e-6
-        ###########################MADE RECIPROCAL SQRT NUMERICALLY STABLE###########################
-        # TODO: Check with Prof if this is ok to do
-        inverse_sqrt_xx_yy = 1 / (t.sqrt(xx_yy) + eps)
-        cos_theta = (kp.xy * inverse_sqrt_xx_yy).clamp(-1+eps, 1-eps)
-        # cos_theta = (kp.xy * xx_yy.rsqrt()).clamp(-1+eps, 1-eps)
-        ###########################MADE RECIPROCAL SQRT NUMERICALLY STABLE###########################
 
-        sin_theta = t.sqrt((xx_yy - kp.xy**2).clamp(min=eps))
+        ###################SELF IMPLEMENTED BACKWARD PASS###########################
+        relu_cnngp = ReLUCNNGP.apply
+        xy = relu_cnngp(kp.xy, kp.xx, kp.yy)
+        # xy = relu_cnngp(kp.xy, xx_yy)
+        ###################SELF IMPLEMENTED BACKWARD PASS###########################
 
-        # cos_theta = (kp.xy * xx_yy.rsqrt()).clamp(-1, 1)
-        # sin_theta = t.sqrt((xx_yy - kp.xy**2).clamp(min=0))
-        theta = t.acos(cos_theta)
-        xy = (sin_theta + (math.pi - theta)*kp.xy) / (2*math.pi)
+        # xx_yy = kp.xx * kp.yy + self.f32_tiny
+        # # Clamp these so the outputs are not NaN
+        # # Use small eps to avoid NaN during backpropagation
+        # eps = 1e-6
+
+        # # NOTE: Replaced rsqrt with 1/t.sqrt()+eps. This is because diff of 1/sqrt(xx_yy) is 1 / (2*xx_yy^1.5) and this 1.5 power turns the small f32tiny into zero
+        # # Check with Prof For accuracy
+        # inverse_sqrt_xx_yy = 1 / (t.sqrt(xx_yy) + eps)
+        # cos_theta = (kp.xy * inverse_sqrt_xx_yy).clamp(-1+eps, 1-eps)
+        # # cos_theta = (kp.xy * xx_yy.rsqrt()).clamp(-1+eps, 1-eps)
+
+        # sin_theta = t.sqrt((xx_yy - kp.xy**2).clamp(min=eps))
+        # # sin_theta = t.sqrt((xx_yy - kp.xy**2).clamp(min=0))
+        # theta = t.acos(cos_theta)
+        # xy = (sin_theta + (math.pi - theta)*kp.xy) / (2*math.pi)
 
         xx = kp.xx/2.
         if kp.same:
