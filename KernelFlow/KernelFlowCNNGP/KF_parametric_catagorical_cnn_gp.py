@@ -22,9 +22,7 @@ class tqdm_skopt(object):
         self._bar = tqdm(**kwargs)
 
     def __call__(self, res=1):
-        # self._bar.update()
-        self._bar.update(len(res.x_iters))
-        print('x')
+        self._bar.update()
 
     # def __getstate__(self):
     #     # don't save away the temporary pbar_ object which gets created on
