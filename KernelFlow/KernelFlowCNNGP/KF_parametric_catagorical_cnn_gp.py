@@ -22,14 +22,9 @@ class tqdm_skopt(object):
         self._bar = tqdm(**kwargs)
 
     def __call__(self, res=1):
-        self._bar.update()
-
-    # def __getstate__(self):
-    #     # don't save away the temporary pbar_ object which gets created on
-    #     # epoch begin anew anyway. This avoids pickling errors with tqdm.
-    #     state = self.__dict__.copy()
-    #     del state['pbar_']
-    #     return state
+        self._bar.update(1)
+        # if len(res.x_iters) % 5 == 0:
+        #     print(f"""On iteration {len(res.x_iters)}""")
 
 ACCEPTED_OPTIMIZERS = ['SGD', 'ADAM']
 
@@ -589,33 +584,33 @@ class KernelFlowsCNNGP():
             del rho
 
     def _fit_bayesian_optimization(self, X: torch.Tensor, Y: torch.Tensor,
-                                   iterations: int , batch_size: int = False, sample_proportion: float = 0.5):
+                                   iterations: int , batch_size: int = False,
+                                   sample_proportion: float = 0.5,
+                                   parameter_bounds_BO: list= None, random_starts: int = 15):
 
         self.X = X
         self.Y = Y
         # Since this is Bayesian optimization we do not need any iterations
-        # Create batch N_f and sample N_c = p*N_f
-        sample_indices, batch_indices = KernelFlowsCNNGP.batch_creation(dataset_size= self._X.shape[0],
-                                                                        batch_size= batch_size,
-                                                                        sample_proportion= sample_proportion)
 
-        # Strip the arguments other than parameters since gp_minimize does not accept auxilary arguments as of yet. This is an open issue
-        # Reference: https://github.com/scikit-optimize/scikit-optimize/issues/240
+        # Strip the arguments other than parameters since gp_minimize does not accept auxilary arguments as of yet.
+        # This is an open issue Reference: https://github.com/scikit-optimize/scikit-optimize/issues/240
         # TODO: Once the args feature is added this can be made cleaner.
         rho_objective = partial(self._rho_bo, batch_size, sample_proportion)
 
         # QUESTION: Can the bounds be negative?
-        no_params = len(list(self.cnn_gp_kernel.parameters()))
-        eps = 1e-3
-        lower_bounds = list(-10 * np.ones(no_params))
-        upper_bounds = list(10.0*np.ones(no_params))
-        parameter_bounds = list(zip(lower_bounds, upper_bounds))
+        if parameter_bounds_BO is None:
+            no_params = len(list(self.cnn_gp_kernel.parameters()))
+            lower_bounds = list(-10 * np.ones(no_params))
+            upper_bounds = list(10.0*np.ones(no_params))
+            parameter_bounds = list(zip(lower_bounds, upper_bounds))
+        else:
+            parameter_bounds = parameter_bounds_BO
         # Applied gaussian process based bayesian optimization
         bo_result = gp_minimize(rho_objective,  # the function to minimize
                         parameter_bounds,   # the bounds on each parameter
-                        acq_func="LCB",      # the acquisition function
+                        acq_func="EI",      # the acquisition function
                         n_calls=iterations,         # the number of evaluations of f
-                        n_random_starts=10,  # the number of random initialization points
+                        n_random_starts=random_starts,  # the number of random initialization points
                         # noise=0.1**2,       # the noise level (optional)
                         random_state=1234,  # the random seed
                         callback=[tqdm_skopt(total=iterations, desc="Bayesian Optimization")])
@@ -628,14 +623,15 @@ class KernelFlowsCNNGP():
 
     def fit(self, X: torch.Tensor, Y: torch.Tensor, iterations: int, batch_size: int = False,
             sample_proportion: float = 0.5, method:str = 'autograd', optimizer: str = 'SGD',
-            dw: float = 0.001, adaptive_size: bool = False, block_size: int = False):
+            dw: float = 0.001, adaptive_size: bool = False, parameter_bounds_BO: list = None,
+            random_starts_BO: int = 15):
         """Fits the Kernel with optimial hyperparameters based on the Kernel Flow algorithm
 
         Args:
             X (torch.Tensor): Training dataset values
             Y (torch.Tensor): Training dataset labels
             iterations (int): Number of iterations
-            batch_size (int, optional): Batch size for block evaluations. Defaults to False.
+            batch_size (int, optional): Batch size N_f. Defaults to False.
             sample_proportion (float, optional): Proportion of the batch against which rho is calculated. Defaults to 0.5.
             method (str, optional): Differenciation method. Defaults to 'autograd'.
             optimizer (str, optional): Optimization technique. Defaults to 'SGD'.
@@ -645,21 +641,22 @@ class KernelFlowsCNNGP():
         Raises:
             ValueError: Incase incorrect differenciation strategy is selected
         """
-        if block_size is not False:
-            self.block_size = block_size
-
         if method == 'autograd':
             self._fit_autograd(X=X, Y=Y, iterations=iterations, batch_size=batch_size,
                                sample_proportion=sample_proportion, optimizer=optimizer,
                                adaptive_size=adaptive_size)
         elif method == 'finite difference':
             self._fit_finite_difference(X=X, Y=Y, iterations=iterations, batch_size=batch_size,
-                                        sample_proportion=sample_proportion, optimizer=optimizer,
-                                        dw=dw, adaptive_size=adaptive_size)
+                                        sample_proportion=sample_proportion,
+                                        optimizer=optimizer, dw=dw, adaptive_size=adaptive_size)
         elif method == 'bayesian optimization':
-            self._fit_bayesian_optimization(X=X, Y=Y, batch_size=batch_size, iterations=iterations, sample_proportion=sample_proportion)
+            self._fit_bayesian_optimization(X=X, Y=Y, batch_size=batch_size,
+                                            iterations=iterations,
+                                            sample_proportion=sample_proportion,
+                                            parameter_bounds_BO=parameter_bounds_BO,
+                                            random_starts=random_starts_BO)
         else:
-            raise ValueError("Method not understood. Please use either 'autograd' or 'finite difference'")
+            raise ValueError("Method not understood. Please use either 'autograd', 'finite difference' or 'bayesian optimization'. Defaults to 'autograd'")
 
     def predict(self, X_test: torch.Tensor, N_I: int = False) -> torch.Tensor:
         """Predict method for trained Kernel Flow model
