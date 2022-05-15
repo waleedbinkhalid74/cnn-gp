@@ -3,10 +3,11 @@ numpy>=1.10.0
 torch>=1.1.0
 torchvision>=0.2.0
 tqdm>=4.32
+scikit-learn>=0.21.0
+scikit-optimize
 
 # For experiments
 h5py>=2.9.0
-scikit-learn>=0.21.0
 pandas>=0.24.0
 matplotlib>=3.1.0
 

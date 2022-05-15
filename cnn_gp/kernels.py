@@ -4,6 +4,7 @@ import torch as t
 import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
+from zmq import device
 from .kernel_patch import ConvKP, NonlinKP
 import math
 import numpy as np
@@ -185,12 +186,13 @@ class Conv2d(NNGPKernel):
             # We need to pad one side larger than the other. We just make a
             # kernel that is slightly too large and make its last column and
             # row zeros.
-            self.kernel = t.ones(1, 1, self.kernel_size+1, self.kernel_size+1)
-            self.kernel[:, :, 0, :] = 0.
-            self.kernel[:, :, :, 0] = 0.
+            kernel = t.ones(1, 1, self.kernel_size+1, self.kernel_size+1)
+            kernel[:, :, 0, :] = 0.
+            kernel[:, :, :, 0] = 0.
         else:
-            self.kernel = t.ones(1, 1, self.kernel_size, self.kernel_size)
+            kernel = t.ones(1, 1, self.kernel_size, self.kernel_size)
 
+        self.register_buffer('kernel', kernel)
         self.kernel = self.kernel / self.kernel_size**2
         self.in_channel_multiplier, self.out_channel_multiplier = (
             in_channel_multiplier, out_channel_multiplier)

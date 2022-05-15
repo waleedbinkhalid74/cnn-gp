@@ -3,7 +3,6 @@ import os
 from typing import Tuple
 import warnings
 from xmlrpc.client import boolean
-from sympy import lowergamma
 from torch.multiprocessing import Process, Pool, set_start_method, Queue
 from scipy.linalg import lstsq
 from cnn_gp import NNGPKernel, ProductIterator
