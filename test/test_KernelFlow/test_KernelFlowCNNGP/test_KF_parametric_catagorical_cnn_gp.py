@@ -6,6 +6,8 @@ from KernelFlow import batch_creation
 import pytest
 import torch.nn.functional as F
 
+DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
 def test_batch_sample_creation():
     """Check if lengths of batch and samples match
     """
@@ -63,10 +65,10 @@ def test_pi_matrix():
                                    [0,0,0,0,0,0,0,1,0,0],
                                    [0,0,0,0,0,0,0,0,1,0],
                                    [0,0,0,0,0,0,0,0,0,1]])
-    pi_matrix = KernelFlowsCNNGP.pi_matrix(sample_indices=sample_indices,dimension=(N_c, N_f))
-    print(pi_matrix_compare)
-    print(pi_matrix)
-    assert torch.equal(pi_matrix, pi_matrix_compare)
+
+    pi = torch.zeros((N_c, N_f)).to(DEVICE)
+    pi_matrix = KernelFlowsCNNGP._pi_matrix(pi_matrix=pi, sample_indices=sample_indices,dimension=(N_c, N_f))
+    assert torch.equal(pi_matrix.cpu(), pi_matrix_compare.cpu())
 
 def test_rho():
     """Test if calculation of rho is correct compared to Darcy's implementation
@@ -75,18 +77,19 @@ def test_rho():
                 Conv2d(kernel_size=3, padding=0),
                 ReLU(),
                 )
+    model.to(DEVICE)
     K = KernelFlowsCNNGP(cnn_gp_kernel=model)
-    X = torch.ones((10, 1, 3,3), dtype=torch.float32)
+    X = torch.rand((10, 1, 3,3), dtype=torch.float32).to(DEVICE)
     for i in range(X.shape[0]):
         X[i] = X[i] * i
 
     Y = torch.arange(0,10)
     Y = F.one_hot(Y, 10)
     Y = Y.to(torch.float32)
+    Y = Y.to(DEVICE)
 
     samples = np.array([2,3,4])
     batches = np.array([1, 3, 4, 5, 7])
-
 
     N_f = len(batches)
     N_c = len(samples)
@@ -95,7 +98,8 @@ def test_rho():
     Y_batch = Y[batches]
     Y_sample = Y[samples]
 
-    pi_matrix = KernelFlowsCNNGP.pi_matrix(sample_indices=samples, dimension=(N_c, N_f))
+    pi = torch.zeros((N_c, N_f)).to(DEVICE)
+    pi_matrix = KernelFlowsCNNGP._pi_matrix(pi_matrix=pi, sample_indices=samples, dimension=(N_c, N_f))
     rho = K.rho(X_batch=X_batch, Y_batch=Y_batch, Y_sample=Y_sample, pi_matrix=pi_matrix)
 
     ##### TEST COMPARISION #####
@@ -103,18 +107,21 @@ def test_rho():
                         [0, 0, 0, 1, 0],
                         [0, 0, 0, 0, 1]], dtype=float)
 
+    assert np.all(np.equal(pi_matrix.cpu().numpy(), pi_comp))
+
     K_xx = model(X_batch, X_batch)
-    K_xx = K_xx.detach().numpy()
+    K_xx = K_xx.cpu().detach().numpy()
     sample_matrix = np.matmul(pi_comp, np.matmul(K_xx, np.transpose(pi_comp)))
     inverse_data = np.linalg.inv(K_xx + 0.000001 * np.identity(K_xx.shape[0]))
     inverse_sample = np.linalg.inv(sample_matrix + 0.000001 * np.identity(sample_matrix.shape[0]))
-    top = np.matmul(Y_sample.T, np.matmul(inverse_sample, Y_sample))
-    bottom = np.matmul(Y_batch.T, np.matmul(inverse_data, Y_batch))
+    top = np.matmul(Y_sample.cpu().T, np.matmul(inverse_sample, Y_sample.cpu()))
+    bottom = np.matmul(Y_batch.T.cpu(), np.matmul(inverse_data, Y_batch.cpu()))
     rho_comp = 1 - np.trace(top)/np.trace(bottom)
     # TODO: Check if a relative tolerance of just 0.01 is acceptable.
     # Pytorch and numpy result in slightly different results due to numerical reasons
     # Is this acceptable?
-    assert np.isclose(rho.detach().numpy(), rho_comp, 1e-3)
+    print(rho.cpu().detach().numpy(), rho_comp)
+    assert np.isclose(rho.cpu().detach().numpy(), rho_comp, 1e-3)
 
 def test_blocked_kernel_eval_square_result():
     """Test if blocked kernel evaluation results in the same result as a complete evaluation
@@ -138,7 +145,7 @@ def test_blocked_kernel_eval_square_result():
         k_blocked = KernelFlowsCNNGP._block_kernel_eval(X=X,
                                                         Y=X,
                                                         blocksize=25,
-                                                        kernel=model_untrained).numpy()
+                                                        kernel=model_untrained).cpu().numpy()
 
     assert np.all(np.equal(k_full, k_blocked))
 
@@ -165,7 +172,7 @@ def test_blocked_kernel_eval_rec_result():
         k_blocked = KernelFlowsCNNGP._block_kernel_eval(X=X[:125],
                                                         Y=X[:125],
                                                         blocksize=50,
-                                                        kernel=model_untrained).numpy()
+                                                        kernel=model_untrained).cpu().numpy()
         assert np.all(np.equal(k_full, k_blocked))
 
         # Complete Kernel
@@ -175,7 +182,7 @@ def test_blocked_kernel_eval_rec_result():
         k_blocked = KernelFlowsCNNGP._block_kernel_eval(X=X[:120],
                                                         Y=X[:125],
                                                         blocksize=50,
-                                                        kernel=model_untrained).numpy()
+                                                        kernel=model_untrained).cpu().numpy()
 
         assert np.all(np.equal(k_full, k_blocked))
 
@@ -186,7 +193,7 @@ def test_blocked_kernel_eval_rec_result():
         k_blocked = KernelFlowsCNNGP._block_kernel_eval(X=X[:116],
                                                         Y=X[:110],
                                                         blocksize=50,
-                                                        kernel=model_untrained).numpy()
+                                                        kernel=model_untrained).cpu().numpy()
 
         assert np.all(np.equal(k_full, k_blocked))
 
@@ -197,17 +204,17 @@ def test_blocked_kernel_eval_rec_result():
         k_blocked = KernelFlowsCNNGP._block_kernel_eval(X=X[:125],
                                                         Y=X[:125],
                                                         blocksize=100,
-                                                        kernel=model_untrained).numpy()
+                                                        kernel=model_untrained).cpu().numpy()
 
         assert np.all(np.equal(k_full, k_blocked))
 
         # Complete Kernel
-        k_full = model_untrained(X[:1000], X[:100]).detach().numpy()
+        k_full = model_untrained(X[:1000], X[:100]).detach().cpu().numpy()
 
         # Blockwise Kernel
         k_blocked = KernelFlowsCNNGP._block_kernel_eval(X=X[:1000],
                                                         Y=X[:100],
                                                         blocksize=100,
-                                                        kernel=model_untrained).numpy()
+                                                        kernel=model_untrained).cpu().numpy()
 
         assert np.all(np.equal(k_full, k_blocked))

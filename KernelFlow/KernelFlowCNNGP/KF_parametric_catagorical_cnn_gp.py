@@ -5,6 +5,7 @@ import warnings
 from xmlrpc.client import boolean
 from torch.multiprocessing import Process, Pool, set_start_method, Queue
 from scipy.linalg import lstsq
+from zmq import device
 from cnn_gp import NNGPKernel, ProductIterator
 import torch
 import torch.nn as nn
@@ -45,7 +46,8 @@ class KernelFlowsCNNGP():
     """
     def __init__(self, cnn_gp_kernel: NNGPKernel, lr: float = 0.1,
                  beta: float = 0.9, regularization_lambda: float = 0.000001,
-                 reduction_constant: float = 0.0, blocksize: int = 200):
+                 reduction_constant: float = 0.0, blocksize: int = 200,
+                 device=torch.device('cuda' if torch.cuda.is_available() else 'cpu')):
         """Constructor for the Kernel Flow class that uses convolutional neural networks induced gaussian process kernels
            (Note, can also work with other kernels but they need to be a torch.nn.Module. See kernels folder for examples)
 
@@ -66,6 +68,7 @@ class KernelFlowsCNNGP():
         self.reduction_constant = reduction_constant
         self.regularization_lambda = regularization_lambda
         self.block_size = blocksize # Number of images to process at once when evaluating the Kernel
+        self.device = device
 
         self._X: torch.Tensor = None
         self._Y: torch.Tensor = None
@@ -231,7 +234,8 @@ class KernelFlowsCNNGP():
         Returns:
             torch.Tensor: Evaluated kernel result
         """
-        k_matrix = torch.ones((X.shape[0], Y.shape[0]), dtype=torch.float32)
+        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        k_matrix = torch.ones((X.shape[0], Y.shape[0]), dtype=torch.float32).to(device)
         it = ProductIterator(blocksize, X, Y, worker_rank=worker_rank, n_workers=n_workers)
         for same, (i, x), (j, y) in it:
             k = kernel(x, y, same, diag=False)
@@ -273,8 +277,8 @@ class KernelFlowsCNNGP():
                                                             blocksize=blocksize,
                                                             kernel=kernel,
                                                             **kwargs)
-
-        k_matrix += regularization_lambda * torch.eye(k_matrix.shape[0])
+        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        k_matrix += regularization_lambda * torch.eye(k_matrix.shape[0]).to(device=device)
 
 
         if save_kernel:
@@ -293,7 +297,7 @@ class KernelFlowsCNNGP():
         return np.linspace(range_tuple[0], range_tuple[1], num = iterations)[::-1]
 
     @staticmethod
-    def pi_matrix(sample_indices: np.ndarray, dimension: Tuple) -> torch.Tensor:
+    def _pi_matrix(pi_matrix:torch.Tensor, sample_indices: np.ndarray, dimension: Tuple) -> torch.Tensor:
         """Evaluates the pi matrix. pi matrix is the corresponding Nc x Nf sub-sampling
             matrix defined by pi_{i;j} = delta_{sample}(i);j. The matrix has one non-zero (one)
             entry in each row
@@ -307,13 +311,28 @@ class KernelFlowsCNNGP():
         """
         # pi matrix is a N_c by N_f (or sample size times batch size) matrix with binary entries.
         # The element of the matrix is 1 when
-        pi = torch.zeros(dimension)
-
         for i in range(dimension[0]):
-            pi[i][sample_indices[i]] = 1
+            pi_matrix[i][sample_indices[i]] = 1
 
+        return pi_matrix
+
+    def pi_matrix(self, sample_indices: np.ndarray, dimension: Tuple):
+        """Evaluates the pi matrix. pi matrix is the corresponding Nc x Nf sub-sampling
+            matrix defined by pi_{i;j} = delta_{sample}(i);j. The matrix has one non-zero (one)
+            entry in each row
+
+        Args:
+            sample_indices (np.ndarray): samples drawn from the batch
+            dimension (Tuple): dimensionality of the pi matrix N_c x N_f
+
+        Returns:
+            torch.Tensor: resulting pi matrix
+        """
+        # pi matrix is a N_c by N_f (or sample size times batch size) matrix with binary entries.
+        # The element of the matrix is 1 when
+        pi = torch.zeros(dimension).to(self.device)
+        pi = KernelFlowsCNNGP._pi_matrix(pi_matrix=pi, dimension=dimension, sample_indices=sample_indices)
         return pi
-
     def _rho_bo(self, batch_size, sample_proportion, params) -> torch.Tensor:
 
         sample_indices, batch_indices = KernelFlowsCNNGP.batch_creation(dataset_size= self._X.shape[0],
@@ -337,7 +356,7 @@ class KernelFlowsCNNGP():
 
         # Set the parameters of the kernel
         for i, param in enumerate(self.cnn_gp_kernel.parameters()):
-            param.data = torch.tensor([params[i]])
+            param.data = torch.tensor([params[i]]).to(self.device)
 
         # Calculate kernel theta = Kernel(X_Nf, X_Nf). NOTE: This is the most expensive step of the algorithm
         with torch.no_grad():
@@ -392,12 +411,12 @@ class KernelFlowsCNNGP():
         sample_matrix = torch.matmul(pi_matrix, torch.matmul(theta, torch.transpose(pi_matrix, 0, 1)))
 
         # Add regularization
-        inverse_data = torch.linalg.inv(theta + self.regularization_lambda * torch.eye(theta.shape[0]))
+        inverse_data = torch.linalg.inv(theta + self.regularization_lambda * torch.eye(theta.shape[0]).to(self.device))
 
         # Delete theta matrix to free memory as it is not needed beyond this point
         del theta
 
-        inverse_sample = torch.linalg.inv(sample_matrix + self.regularization_lambda * torch.eye(sample_matrix.shape[0]))
+        inverse_sample = torch.linalg.inv(sample_matrix + self.regularization_lambda * torch.eye(sample_matrix.shape[0]).to(self.device))
 
         # Calculate numerator
         numerator = torch.matmul(torch.transpose(Y_sample,0,1), torch.matmul(inverse_sample, Y_sample))

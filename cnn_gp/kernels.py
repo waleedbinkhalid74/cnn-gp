@@ -181,7 +181,6 @@ class Conv2d(NNGPKernel):
 
         self.var_weight = nn.Parameter(t.Tensor([var_weight]))
         self.var_bias = nn.Parameter(t.Tensor([var_bias]))
-
         if self.kernel_has_row_of_zeros:
             # We need to pad one side larger than the other. We just make a
             # kernel that is slightly too large and make its last column and
@@ -204,6 +203,7 @@ class Conv2d(NNGPKernel):
         # This will be used in our custom backward pass
         # self.kp = ConvKP(kp.same, kp.diag, kp.xy.data, kp.xx.data, kp.yy.data)
         ###########################ADDED CALCULATION OF KERNEL FROM TRAINABLE VARIANCES###########################
+        print(self.kernel.is_cuda, self.var_weight.is_cuda)
         kernel = self.kernel * self.var_weight
         ###########################ADDED CALCULATION OF KERNEL FROM TRAINABLE VARIANCES###########################
         def f(patch):
