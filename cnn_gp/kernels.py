@@ -203,7 +203,6 @@ class Conv2d(NNGPKernel):
         # This will be used in our custom backward pass
         # self.kp = ConvKP(kp.same, kp.diag, kp.xy.data, kp.xx.data, kp.yy.data)
         ###########################ADDED CALCULATION OF KERNEL FROM TRAINABLE VARIANCES###########################
-        print(self.kernel.is_cuda, self.var_weight.is_cuda)
         kernel = self.kernel * self.var_weight
         ###########################ADDED CALCULATION OF KERNEL FROM TRAINABLE VARIANCES###########################
         def f(patch):

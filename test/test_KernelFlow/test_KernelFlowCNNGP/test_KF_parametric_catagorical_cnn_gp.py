@@ -120,7 +120,6 @@ def test_rho():
     # TODO: Check if a relative tolerance of just 0.01 is acceptable.
     # Pytorch and numpy result in slightly different results due to numerical reasons
     # Is this acceptable?
-    print(rho.cpu().detach().numpy(), rho_comp)
     assert np.isclose(rho.cpu().detach().numpy(), rho_comp, 1e-3)
 
 def test_blocked_kernel_eval_square_result():
@@ -218,3 +217,25 @@ def test_blocked_kernel_eval_rec_result():
                                                         kernel=model_untrained).cpu().numpy()
 
         assert np.all(np.equal(k_full, k_blocked))
+
+
+def test_cpu_vs_gpu_results():
+    model_cpu = Sequential(
+            Conv2d(kernel_size=3, var_weight=np.random.rand()*100, var_bias=np.random.rand()*100),
+            ReLU(),
+            Conv2d(kernel_size=3, stride=2, var_weight=np.random.rand()*100, var_bias=np.random.rand()*100),
+            ReLU(),
+            Conv2d(kernel_size=14, padding=0, var_weight=np.random.rand()*100, var_bias=np.random.rand()*100),  # equivalent to a dense layer
+            )
+    K = KernelFlowsCNNGP(cnn_gp_kernel=model_cpu, device='cpu')
+    X_cpu = torch.rand((10, 1, 28,28), dtype=torch.float32)
+
+    result_cpu = model_cpu(X_cpu, X_cpu)
+    model_cpu.to(DEVICE)
+    X_gpu = X_cpu.to(DEVICE)
+
+    assert torch.equal(X_cpu, X_gpu.cpu())
+    result_gpu = model_cpu(X_gpu, X_gpu)
+    # Check relative error
+    assert torch.sum(result_cpu - result_gpu.cpu()) / torch.sum(result_cpu) < 1e-5
+    

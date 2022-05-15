@@ -23,8 +23,6 @@ class tqdm_skopt(object):
 
     def __call__(self, res=1):
         self._bar.update(1)
-        # if len(res.x_iters) % 5 == 0:
-        #     print(f"""On iteration {len(res.x_iters)}""")
 
 ACCEPTED_OPTIMIZERS = ['SGD', 'ADAM']
 
@@ -223,7 +221,7 @@ class KernelFlowsCNNGP():
 
     @staticmethod
     def _block_kernel_eval(X: torch.Tensor, Y: torch.Tensor, blocksize: int,
-                           kernel: nn.Module, worker_rank: int=0, n_workers: int=1) -> torch.Tensor:
+                           kernel: nn.Module, worker_rank: int=0, n_workers: int=1, device=None) -> torch.Tensor:
         """Evaluates the kernel matrix using a block wise evaluation approach.
         Args:
             X (torch.Tensor): X input of kernel K(X, .)
@@ -286,9 +284,9 @@ class KernelFlowsCNNGP():
             torch.save(os.getcwd() + '/saved_kernels/' + save_kernel + '_t_matrix.pt', t_matrix)
 
 #########################VERIFY - REPLACING INVERSE WITH LEAST SQ AS PER MARTIN FOR NUMERICAL REASONS##################################
-        prediction = torch.matmul(t_matrix, torch.matmul(torch.linalg.inv(k_matrix), Y_train))
-        # k_inv_Y, _, _, _ = lstsq(k_matrix, Y_train.detach().numpy(), cond=1e-8)
-        # prediction_lstsq = np.matmul(t_matrix, k_inv_Y)
+        # prediction = torch.matmul(t_matrix, torch.matmul(torch.linalg.inv(k_matrix), Y_train))
+        k_inv_Y = torch.linalg.lstsq(k_matrix, Y_train, rcond=1e-8).solution
+        prediction = torch.matmul(t_matrix, k_inv_Y)
 #########################VERIFY - REPLACING INVERSE WITH LEAST SQ AS PER MARTIN FOR NUMERICAL REASONS##################################
         return prediction, k_matrix, t_matrix
 
@@ -333,6 +331,7 @@ class KernelFlowsCNNGP():
         pi = torch.zeros(dimension).to(self.device)
         pi = KernelFlowsCNNGP._pi_matrix(pi_matrix=pi, dimension=dimension, sample_indices=sample_indices)
         return pi
+
     def _rho_bo(self, batch_size, sample_proportion, params) -> torch.Tensor:
 
         sample_indices, batch_indices = KernelFlowsCNNGP.batch_creation(dataset_size= self._X.shape[0],
@@ -346,7 +345,7 @@ class KernelFlowsCNNGP():
         N_c = len(sample_indices)
 
         # Calculate pi matrix
-        pi_matrix = KernelFlowsCNNGP.pi_matrix(sample_indices=sample_indices, dimension=(N_c, N_f))
+        pi_matrix = self.pi_matrix(sample_indices=sample_indices, dimension=(N_c, N_f))
 
         assert len(params) == len(list(self.cnn_gp_kernel.parameters()))
         # rho = 1 - trace(Y_s^T * K(X_s, X_s)^-1 * Y_s) / trace(Y_b^T K(X_b, X_b)^-1 Y_b)
@@ -368,9 +367,9 @@ class KernelFlowsCNNGP():
         sample_matrix = torch.matmul(pi_matrix, torch.matmul(theta, torch.transpose(pi_matrix, 0, 1)))
 
         # Add regularization
-        inverse_data = torch.linalg.inv(theta + self.regularization_lambda * torch.eye(theta.shape[0]))
+        inverse_data = torch.linalg.inv(theta + self.regularization_lambda * torch.eye(theta.shape[0]).to(self.device))
 
-        inverse_sample = torch.linalg.inv(sample_matrix + self.regularization_lambda * torch.eye(sample_matrix.shape[0]))
+        inverse_sample = torch.linalg.inv(sample_matrix + self.regularization_lambda * torch.eye(sample_matrix.shape[0]).to(self.device))
 
         # Calculate numerator
         numerator = torch.matmul(torch.transpose(Y_sample,0,1), torch.matmul(inverse_sample, Y_sample))
@@ -380,9 +379,8 @@ class KernelFlowsCNNGP():
         rho = 1 - torch.trace(numerator)/torch.trace(denominator)
 
         # skopt Bayesian optimization requires a scalar output from the blackbox function
-        self.rho_values.append(rho.numpy().item())
-        # print(f"""The value of rho is {rho.numpy().item()}""")
-        return rho.numpy().item()
+        self.rho_values.append(rho.cpu().numpy().item())
+        return rho.cpu().numpy().item()
 
     def rho(self, X_batch: torch.Tensor, Y_batch: torch.Tensor,
             Y_sample: torch.Tensor, pi_matrix: torch.Tensor) -> torch.Tensor:
@@ -406,7 +404,6 @@ class KernelFlowsCNNGP():
         theta = KernelFlowsCNNGP._block_kernel_eval(X=X_batch,Y=X_batch,kernel=self.cnn_gp_kernel,
                                             blocksize=self.block_size, worker_rank=0, n_workers=1)
         # theta = self.cnn_gp_kernel(X_batch, X_batch)
-
         # Calculate sample_matrix = pi_mat*theta*pi_mat^T
         sample_matrix = torch.matmul(pi_matrix, torch.matmul(theta, torch.transpose(pi_matrix, 0, 1)))
 
@@ -481,7 +478,7 @@ class KernelFlowsCNNGP():
             N_c = len(sample_indices)
 
             # Calculate pi matrix
-            pi_matrix = KernelFlowsCNNGP.pi_matrix(sample_indices=sample_indices, dimension=(N_c, N_f))
+            pi_matrix = self.pi_matrix(sample_indices=sample_indices, dimension=(N_c, N_f))
 
             optimizer.zero_grad()
 
@@ -500,7 +497,7 @@ class KernelFlowsCNNGP():
             optimizer.step()
 
             # Store value of rho
-            self.rho_values.append(rho.detach().numpy())
+            self.rho_values.append(rho.cpu().detach().numpy().item())
 
             del rho
 
@@ -559,7 +556,7 @@ class KernelFlowsCNNGP():
             N_c = len(sample_indices)
 
             # Calculate pi matrix
-            pi_matrix = KernelFlowsCNNGP.pi_matrix(sample_indices=sample_indices, dimension=(N_c, N_f))
+            pi_matrix = self.pi_matrix(sample_indices=sample_indices, dimension=(N_c, N_f))
             optimizer.zero_grad()
 
             # NOTE: Number of forward passes = No_parameters + 1 per iteration!
@@ -597,7 +594,7 @@ class KernelFlowsCNNGP():
             optimizer.step()
 
             # Store value of rho
-            self.rho_values.append(rho.detach().numpy())
+            self.rho_values.append(rho.cpu().detach().numpy().item())
 
             del rho
 
@@ -635,7 +632,7 @@ class KernelFlowsCNNGP():
 
         new_parameters = bo_result.x
         for i, param in enumerate(self.cnn_gp_kernel.parameters()):
-            param.data = torch.tensor([new_parameters[i]])
+            param.data = torch.tensor([new_parameters[i]]).to(self.device)
 
         return self.cnn_gp_kernel
 

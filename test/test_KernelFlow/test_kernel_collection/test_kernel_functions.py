@@ -33,5 +33,4 @@ def test_rbf():
                             parameters=np.array([4.0]))
     rbf_kernel = RBF_Kernel(parameters=4.0)
     kernel_test = rbf_kernel(matrix_1=torch.flatten(X_train, 1, -1), matrix_2=torch.flatten(X_train, 1, -1))
-    print(kernel_test.detach().numpy() - kernel_control)
     assert np.all(np.isclose(kernel_test.detach().numpy(), kernel_control))

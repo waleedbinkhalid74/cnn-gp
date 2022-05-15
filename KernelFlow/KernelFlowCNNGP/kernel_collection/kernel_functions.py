@@ -5,8 +5,8 @@ import torch.nn as nn
 class RBF_Kernel(nn.Module):
     def __init__(self, parameters) -> None:
         super().__init__()
-        sigma = nn.Parameter(torch.Tensor([parameters]))
-        self.register_parameter('sigma', sigma)
+        self.sigma = nn.Parameter(torch.Tensor([parameters]))
+        # self.register_parameter('sigma', sigma)
 
 
     def norm_matrix(self, matrix_1, matrix_2):
