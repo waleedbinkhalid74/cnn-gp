@@ -290,9 +290,9 @@ class KernelFlowsCNNGP():
             torch.save(os.getcwd() + '/saved_kernels/' + save_kernel + '_t_matrix.pt', t_matrix)
 
 #########################VERIFY - REPLACING INVERSE WITH LEAST SQ AS PER MARTIN FOR NUMERICAL REASONS##################################
-        prediction = torch.matmul(t_matrix, torch.matmul(torch.linalg.inv(k_matrix), Y_train))
-        # k_inv_Y = torch.linalg.lstsq(k_matrix, Y_train, rcond=1e-8).solution
-        # prediction = torch.matmul(t_matrix, k_inv_Y)
+        # prediction = torch.matmul(t_matrix, torch.matmul(torch.linalg.inv(k_matrix), Y_train))
+        k_inv_Y = torch.linalg.lstsq(k_matrix, Y_train, rcond=1e-8).solution
+        prediction = torch.matmul(t_matrix, k_inv_Y)
 #########################VERIFY - REPLACING INVERSE WITH LEAST SQ AS PER MARTIN FOR NUMERICAL REASONS##################################
         return prediction, k_matrix, t_matrix
 
@@ -353,15 +353,24 @@ class KernelFlowsCNNGP():
         # Calculate pi matrix
         pi_matrix = self.pi_matrix(sample_indices=sample_indices, dimension=(N_c, N_f))
 
-        assert len(params) == len(list(self.cnn_gp_kernel.parameters()))
+        # assert len(params) == len(list(self.cnn_gp_kernel.parameters()))
         # rho = 1 - trace(Y_s^T * K(X_s, X_s)^-1 * Y_s) / trace(Y_b^T K(X_b, X_b)^-1 Y_b)
 
         # Calculation of two kernels is expensive so we use proposition 3.2 Owhadi 2018
         # rho = 1 - trace(Y_s^T * (pi_mat * K(X_b, X_b)^-1 pi_mat^T) * Y_s) / trace(Y_b^T K(X_b, X_b)^-1 Y_b)
 
+        var_weight = params[0]
+        var_bias = params[1]
         # Set the parameters of the kernel
+        # for i, module in enumerate(self.cnn_gp_kernel.mods()):
+        #     module.var_weight = torch.tensor([var_weight]).to(self.device)
+        #     module.var_bias = torch.tensor([var_bias]).to(self.device)
+        no_params = len(list(self.cnn_gp_kernel.parameters()))
         for i, param in enumerate(self.cnn_gp_kernel.parameters()):
-            param.data = torch.tensor([params[i]]).to(self.device)
+            if i == no_params - 2:
+                param.data = torch.tensor([params[0] / 7 ** 2]).to(self.device)
+            else:
+                param.data = torch.tensor([params[i % 2]]).to(self.device)
 
         # Calculate kernel theta = Kernel(X_Nf, X_Nf). NOTE: This is the most expensive step of the algorithm
         with torch.no_grad():
@@ -642,9 +651,15 @@ class KernelFlowsCNNGP():
                         random_state=1234,  # the random seed
                         callback=[tqdm_skopt(total=iterations, desc="Bayesian Optimization")])
 
-        new_parameters = bo_result.x
+        params = bo_result.x
+        no_params = len(list(self.cnn_gp_kernel.parameters()))
         for i, param in enumerate(self.cnn_gp_kernel.parameters()):
-            param.data = torch.tensor([new_parameters[i]]).to(self.device)
+            if i == no_params - 2:
+                param.data = torch.tensor([params[0] / 7 ** 2]).to(self.device)
+            else:
+                param.data = torch.tensor([params[i % 2]]).to(self.device)
+        # for i, param in enumerate(self.cnn_gp_kernel.parameters()):
+        #     param.data = torch.tensor([new_parameters[i]]).to(self.device)
 
         return self.cnn_gp_kernel
 
