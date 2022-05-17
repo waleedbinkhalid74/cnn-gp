@@ -232,7 +232,8 @@ class KernelFlowsCNNGP():
         Returns:
             torch.Tensor: Evaluated kernel result
         """
-        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        if device is None:
+            device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         k_matrix = torch.ones((X.shape[0], Y.shape[0]), dtype=torch.float32).to(device)
         it = ProductIterator(blocksize, X, Y, worker_rank=worker_rank, n_workers=n_workers)
         for same, (i, x), (j, y) in it:
@@ -246,7 +247,7 @@ class KernelFlowsCNNGP():
     def kernel_regression(X_test: torch.Tensor, X_train: torch.Tensor,
                           Y_train: torch.Tensor, kernel: nn.Module, regularization_lambda = 0.0001,
                           blocksize: int = 200, save_kernel: str = False,
-                          worker_rank:int = 0, n_workers: int=1) -> np.ndarray:
+                          worker_rank:int = 0, n_workers: int=1, device=None) -> np.ndarray:
         """Applies Kernel regression to provided data
 
         Args:
@@ -261,6 +262,9 @@ class KernelFlowsCNNGP():
             np.ndarray: Prediction result
         """
         # matrix block evaluation
+        if device is None:
+            device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
         kwargs = dict(worker_rank=worker_rank, n_workers=n_workers)
 
         with torch.no_grad():
@@ -268,14 +272,16 @@ class KernelFlowsCNNGP():
                                                             Y=X_train,
                                                             blocksize=blocksize,
                                                             kernel=kernel,
+                                                            device=device,
                                                             **kwargs)
 
             t_matrix = KernelFlowsCNNGP._block_kernel_eval(X=X_test,
                                                             Y=X_train,
                                                             blocksize=blocksize,
                                                             kernel=kernel,
+                                                            device=device,
                                                             **kwargs)
-        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
         k_matrix += regularization_lambda * torch.eye(k_matrix.shape[0]).to(device=device)
 
 
@@ -284,9 +290,9 @@ class KernelFlowsCNNGP():
             torch.save(os.getcwd() + '/saved_kernels/' + save_kernel + '_t_matrix.pt', t_matrix)
 
 #########################VERIFY - REPLACING INVERSE WITH LEAST SQ AS PER MARTIN FOR NUMERICAL REASONS##################################
-        # prediction = torch.matmul(t_matrix, torch.matmul(torch.linalg.inv(k_matrix), Y_train))
-        k_inv_Y = torch.linalg.lstsq(k_matrix, Y_train, rcond=1e-8).solution
-        prediction = torch.matmul(t_matrix, k_inv_Y)
+        prediction = torch.matmul(t_matrix, torch.matmul(torch.linalg.inv(k_matrix), Y_train))
+        # k_inv_Y = torch.linalg.lstsq(k_matrix, Y_train, rcond=1e-8).solution
+        # prediction = torch.matmul(t_matrix, k_inv_Y)
 #########################VERIFY - REPLACING INVERSE WITH LEAST SQ AS PER MARTIN FOR NUMERICAL REASONS##################################
         return prediction, k_matrix, t_matrix
 
@@ -360,21 +366,28 @@ class KernelFlowsCNNGP():
         # Calculate kernel theta = Kernel(X_Nf, X_Nf). NOTE: This is the most expensive step of the algorithm
         with torch.no_grad():
             theta = KernelFlowsCNNGP._block_kernel_eval(X=X_batch,Y=X_batch,kernel=self.cnn_gp_kernel,
-                                                blocksize=self.block_size, worker_rank=0, n_workers=1)
+                                                blocksize=self.block_size, worker_rank=0, n_workers=1, 
+                                                device=self.device)
         # theta = self.cnn_gp_kernel(X_batch, X_batch)
 
         # Calculate sample_matrix = pi_mat*theta*pi_mat^T
         sample_matrix = torch.matmul(pi_matrix, torch.matmul(theta, torch.transpose(pi_matrix, 0, 1)))
-
         # Add regularization
-        inverse_data = torch.linalg.inv(theta + self.regularization_lambda * torch.eye(theta.shape[0]).to(self.device))
 
-        inverse_sample = torch.linalg.inv(sample_matrix + self.regularization_lambda * torch.eye(sample_matrix.shape[0]).to(self.device))
+        inverse_data = torch.linalg.inv(theta + self.regularization_lambda * torch.eye(theta.shape[0]).to(self.device))
+        # inverse_data_Y_data = torch.linalg.lstsq(theta + self.regularization_lambda * torch.eye(theta.shape[0]).to(self.device), Y_batch, rcond=1e-8).solution
+        try:
+            inverse_sample = torch.linalg.inv(sample_matrix + self.regularization_lambda * torch.eye(sample_matrix.shape[0]).to(self.device))
+        except Exception:
+            pass
+        # inverse_sample_Y_sample = torch.linalg.lstsq(sample_matrix + self.regularization_lambda * torch.eye(sample_matrix.shape[0]).to(self.device), Y_sample, rcond=1e-8).solution
 
         # Calculate numerator
         numerator = torch.matmul(torch.transpose(Y_sample,0,1), torch.matmul(inverse_sample, Y_sample))
+        # numerator = torch.matmul(torch.transpose(Y_sample,0,1), inverse_sample_Y_sample)
         # Calculate denominator
         denominator = torch.matmul(torch.transpose(Y_batch,0,1), torch.matmul(inverse_data, Y_batch))
+        # denominator = torch.matmul(torch.transpose(Y_batch,0,1), inverse_data_Y_data)
         # Calculate rho
         rho = 1 - torch.trace(numerator)/torch.trace(denominator)
 
@@ -402,7 +415,8 @@ class KernelFlowsCNNGP():
 
         # Calculate kernel theta = Kernel(X_Nf, X_Nf). NOTE: This is the most expensive step of the algorithm
         theta = KernelFlowsCNNGP._block_kernel_eval(X=X_batch,Y=X_batch,kernel=self.cnn_gp_kernel,
-                                            blocksize=self.block_size, worker_rank=0, n_workers=1)
+                                            blocksize=self.block_size, worker_rank=0, n_workers=1,
+                                            device=self.device)
         # theta = self.cnn_gp_kernel(X_batch, X_batch)
         # Calculate sample_matrix = pi_mat*theta*pi_mat^T
         sample_matrix = torch.matmul(pi_matrix, torch.matmul(theta, torch.transpose(pi_matrix, 0, 1)))
@@ -596,8 +610,6 @@ class KernelFlowsCNNGP():
             # Store value of rho
             self.rho_values.append(rho.cpu().detach().numpy().item())
 
-            del rho
-
     def _fit_bayesian_optimization(self, X: torch.Tensor, Y: torch.Tensor,
                                    iterations: int , batch_size: int = False,
                                    sample_proportion: float = 0.5,
@@ -615,8 +627,8 @@ class KernelFlowsCNNGP():
         # QUESTION: Can the bounds be negative?
         if parameter_bounds_BO is None:
             no_params = len(list(self.cnn_gp_kernel.parameters()))
-            lower_bounds = list(-10 * np.ones(no_params))
-            upper_bounds = list(10.0*np.ones(no_params))
+            lower_bounds = list(0.25 * np.ones(no_params).astype(np.float64))
+            upper_bounds = list(200.0*np.ones(no_params).astype(np.float64))
             parameter_bounds = list(zip(lower_bounds, upper_bounds))
         else:
             parameter_bounds = parameter_bounds_BO

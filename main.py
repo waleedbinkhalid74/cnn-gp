@@ -11,7 +11,6 @@ from torch import autograd
 import matplotlib.pyplot as plt
 import torchvision.transforms as T
 from torch import autograd
-import torchviz
 import torch.nn as nn
 from cnn_gp.kernels import ReLUCNNGP
 import torch.multiprocessing as mp
@@ -80,14 +79,18 @@ if __name__ == "__main__":
     valloader = torch.utils.data.DataLoader(valset, batch_size=val_size, shuffle=False)
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-
+    # device = 'cpu'
     dataiter = iter(trainloader)
     X_train, Y_train = dataiter.next()
     Y_train = F.one_hot(Y_train, 10).to(torch.float32)
     Y_train[Y_train == 0] = -1.0
+    X_train = X_train.to(device)
+    Y_train = Y_train.to(device)
 
     dataiter_val = iter(valloader)
     X_test, Y_test = dataiter_val.next()
+    X_test = X_test.to(device)
+    Y_test = Y_test.to(device)
 
     model = Sequential(
         Conv2d(kernel_size=3),
@@ -96,6 +99,8 @@ if __name__ == "__main__":
         ReLU(),
         Conv2d(kernel_size=14, padding=0),  # equivalent to a dense layer
         )
+
+    model.to(device=device)
 
     # print(model(X_train[:100],X_train[:100]))
     # KFCNNGP = KernelFlowsCNNGP(cnn_gp_kernel=model)
@@ -133,10 +138,13 @@ if __name__ == "__main__":
 
     # K_xx = model(X_train[0:10], X_train[0:10])#, X_train[0:10])
 
-    pi_mat = KernelFlowsCNNGP.pi_matrix(sample_indices=np.array([1,3,5,7,9]), dimension=(5,10))
-    # rho_val = rho(X_train[:10], Y_train[:10].to(torch.float32), Y_sample=Y_train[np.array([1,3,5,7,9])].to(torch.float32), pi_matrix=pi_mat, kernel=model)
-    rho_val = rho(X_train[-10:], Y_train[-10:].to(torch.float32), Y_sample=Y_train[np.array([1,3,5,7,9])].to(torch.float32), pi_matrix=pi_mat, kernel=model)
+    pi_mat = torch.zeros((5, 10)).to(device)
+    pi_mat = KernelFlowsCNNGP._pi_matrix(pi_matrix=pi_mat, sample_indices=np.array([1,3,5,7,9]), dimension=(5,10))
+    rho_val = rho(X_train[:10], Y_train[:10], Y_sample=Y_train[np.array([1,3,5,7,9])], pi_matrix=pi_mat, kernel=model)
+    # rho_val = rho(X_train[-10:], Y_train[-10:], Y_sample=Y_train[np.array([1,3,5,7,9])], pi_matrix=pi_mat, kernel=model)
+
     rho_val.backward()
+    print(rho_val)
     for params in model.parameters():
         print(params, params.grad)
 
@@ -146,10 +154,10 @@ if __name__ == "__main__":
     # for params in model.parameters():
     #     print(params, params.grad)
 
-    from torch.autograd import gradcheck
-    relucnngp = ReLUCNNGP.apply
-    # input = (torch.ones((5,5,1,1),dtype=torch.double,requires_grad=True), torch.ones((5,1,1,1),dtype=torch.double,requires_grad=True), torch.ones((5,1,1),dtype=torch.double,requires_grad=True))
-    input = (torch.rand((5,5,1,1),dtype=torch.double,requires_grad=True), torch.rand((5,1,1,1),dtype=torch.double,requires_grad=True), torch.rand((5,1,1),dtype=torch.double,requires_grad=True))
-    test = gradcheck(relucnngp, input, atol=1e-3, rtol=1e-4)
-    print(test)
+    # from torch.autograd import gradcheck
+    # relucnngp = ReLUCNNGP.apply
+    # # input = (torch.ones((5,5,1,1),dtype=torch.double,requires_grad=True), torch.ones((5,1,1,1),dtype=torch.double,requires_grad=True), torch.ones((5,1,1),dtype=torch.double,requires_grad=True))
+    # input = (torch.rand((5,5,1,1),dtype=torch.double,requires_grad=True), torch.rand((5,1,1,1),dtype=torch.double,requires_grad=True), torch.rand((5,1,1),dtype=torch.double,requires_grad=True))
+    # test = gradcheck(relucnngp, input, atol=1e-3, rtol=1e-4)
+    # print(test)
     # torchviz.make_dot(rho_val, params=dict(model.named_parameters()))

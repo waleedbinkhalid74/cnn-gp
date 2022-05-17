@@ -43,7 +43,7 @@ class ReLUCNNGP(autograd.Function):
         ctx.save_for_backward(xy, xx, yy)
         f32_tiny = np.finfo(np.float32).tiny
         xx_yy = xx*yy + f32_tiny
-        eps = 1e-6
+        eps = 0*1e-6
         # NOTE: Replaced rsqrt with 1/t.sqrt()+eps. Check with Prof For accuracy
         inverse_sqrt_xx_yy = 1 / (t.sqrt(xx_yy) + eps)
         # inverse_sqrt_xx_yy = t.rsqrt(xx_yy)
