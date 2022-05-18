@@ -359,18 +359,16 @@ class KernelFlowsCNNGP():
         # Calculation of two kernels is expensive so we use proposition 3.2 Owhadi 2018
         # rho = 1 - trace(Y_s^T * (pi_mat * K(X_b, X_b)^-1 pi_mat^T) * Y_s) / trace(Y_b^T K(X_b, X_b)^-1 Y_b)
 
-        var_weight = params[0]
-        var_bias = params[1]
         # Set the parameters of the kernel
         # for i, module in enumerate(self.cnn_gp_kernel.mods()):
         #     module.var_weight = torch.tensor([var_weight]).to(self.device)
         #     module.var_bias = torch.tensor([var_bias]).to(self.device)
         no_params = len(list(self.cnn_gp_kernel.parameters()))
         for i, param in enumerate(self.cnn_gp_kernel.parameters()):
-            if i == no_params - 2:
-                param.data = torch.tensor([params[0] / 7 ** 2]).to(self.device)
-            else:
-                param.data = torch.tensor([params[i % 2]]).to(self.device)
+            # if i == no_params - 2:
+            #     param.data = torch.tensor([params[0] / 7 ** 2]).to(self.device)
+            # else:
+            param.data = torch.tensor([params[i % 2]]).to(self.device)
 
         # Calculate kernel theta = Kernel(X_Nf, X_Nf). NOTE: This is the most expensive step of the algorithm
         with torch.no_grad():
@@ -654,14 +652,69 @@ class KernelFlowsCNNGP():
         params = bo_result.x
         no_params = len(list(self.cnn_gp_kernel.parameters()))
         for i, param in enumerate(self.cnn_gp_kernel.parameters()):
-            if i == no_params - 2:
-                param.data = torch.tensor([params[0] / 7 ** 2]).to(self.device)
-            else:
-                param.data = torch.tensor([params[i % 2]]).to(self.device)
+            # if i == no_params - 2:
+            #     param.data = torch.tensor([params[0] / 7 ** 2]).to(self.device)
+            # else:
+            param.data = torch.tensor([params[i % 2]]).to(self.device)
         # for i, param in enumerate(self.cnn_gp_kernel.parameters()):
         #     param.data = torch.tensor([new_parameters[i]]).to(self.device)
 
         return self.cnn_gp_kernel
+
+        
+    def _fit_BO_Torch(self, X: torch.Tensor, Y: torch.Tensor,
+                        iterations: int , batch_size: int = False,
+                        sample_proportion: float = 0.5,
+                        parameter_bounds_BO: list= None, random_starts: int = 15):
+
+        self.X = X
+        self.Y = Y
+
+        # Strip the arguments other than parameters since gp_minimize does not accept auxilary arguments as of yet.
+        # This is an open issue Reference: https://github.com/scikit-optimize/scikit-optimize/issues/240
+        # TODO: Once the args feature is added this can be made cleaner.
+        rho_objective = partial(self._rho_bo, batch_size, sample_proportion)
+        
+        bounds = torch.tensor([[0.25, 0.0],[50.0, 50.0]])
+        def _rho_wrapper(individuals):
+            result = []
+            for x in tqdm(individuals):
+                result.append(rho_objective(x))
+            return torch.tensor(result)
+
+        init_params = torch.rand(random_starts,2) * 50.0
+        init_rho = _rho_wrapper(init_params).unsqueeze(-1)
+        # best_rho = init_rho[init_rho > 0].min().item()
+        best_rho = init_rho.min().item()
+
+        from botorch.models import SingleTaskGP, ModelListGP
+        from gpytorch.mlls.exact_marginal_log_likelihood import ExactMarginalLogLikelihood
+        from botorch import fit_gpytorch_model
+        from botorch.acquisition.monte_carlo import qExpectedImprovement
+        from botorch.optim import optimize_acqf
+
+        def get_next_point(init_x, init_y, best_y, bounds, n_points=1):
+            single_model = SingleTaskGP(init_x, init_y)
+            mll = ExactMarginalLogLikelihood(single_model.likelihood, single_model)
+            fit_gpytorch_model(mll)
+            EI = qExpectedImprovement(model=single_model, best_f=best_y)
+            candidates, _ = optimize_acqf(acq_function = EI, bounds=bounds, q=n_points, num_restarts=200, raw_samples=512)
+            return candidates
+
+        for i in range(iterations):
+            new_candidates = get_next_point(init_params, init_rho, best_rho, bounds)
+            new_result = _rho_wrapper(new_candidates).unsqueeze(-1)
+            init_params = torch.cat([init_params, new_candidates])
+            init_rho = torch.cat([init_rho, new_result])
+            # best_rho = init_rho[init_rho > 0].min().item()
+            best_rho = init_rho.min().item()
+
+        params = new_candidates.squeeze()
+        no_params = len(list(self.cnn_gp_kernel.parameters()))
+        for i, param in enumerate(self.cnn_gp_kernel.parameters()):
+            param.data = torch.tensor([params[i % 2]]).to(self.device)
+
+        return init_rho
 
     def fit(self, X: torch.Tensor, Y: torch.Tensor, iterations: int, batch_size: int = False,
             sample_proportion: float = 0.5, method:str = 'autograd', optimizer: str = 'SGD',
