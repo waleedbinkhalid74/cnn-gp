@@ -31,7 +31,7 @@ class KernelFlowsCNNGP():
     """
     def __init__(self, cnn_gp_kernel: NNGPKernel, lr: float = 0.1,
                  beta: float = 0.9, regularization_lambda: float = 0.000001,
-                 reduction_constant: float = 0.0, blocksize: int = 200):
+                 reduction_constant: float = 0.0, blocksize: int = 200, device='cpu'):
         """Constructor for the Kernel Flow class that uses convolutional neural networks induced gaussian process kernels
            (Note, can also work with other kernels but they need to be a torch.nn.Module. See kernels folder for examples)
 
@@ -52,6 +52,7 @@ class KernelFlowsCNNGP():
         self.reduction_constant = reduction_constant
         self.regularization_lambda = regularization_lambda
         self.block_size = blocksize # Number of images to process at once when evaluating the Kernel
+        self.device = device
 
         self._X: torch.Tensor = None
         self._Y: torch.Tensor = None
@@ -206,7 +207,7 @@ class KernelFlowsCNNGP():
 
     @staticmethod
     def _block_kernel_eval(X: torch.Tensor, Y: torch.Tensor, blocksize: int,
-                           kernel: nn.Module, worker_rank: int=0, n_workers: int=1) -> torch.Tensor:
+                           kernel: nn.Module, worker_rank: int=0, n_workers: int=1, device='cpu') -> torch.Tensor:
         """Evaluates the kernel matrix using a block wise evaluation approach.
         Args:
             X (torch.Tensor): X input of kernel K(X, .)
@@ -217,7 +218,7 @@ class KernelFlowsCNNGP():
         Returns:
             torch.Tensor: Evaluated kernel result
         """
-        k_matrix = torch.ones((X.shape[0], Y.shape[0]), dtype=torch.float32)
+        k_matrix = torch.ones((X.shape[0], Y.shape[0]), dtype=torch.float32).to(device)
         it = ProductIterator(blocksize, X, Y, worker_rank=worker_rank, n_workers=n_workers)
         for same, (i, x), (j, y) in it:
             k = kernel(x, y, same, diag=False)
@@ -320,19 +321,19 @@ class KernelFlowsCNNGP():
 
         # Calculate kernel theta = Kernel(X_Nf, X_Nf). NOTE: This is the most expensive step of the algorithm
         theta = KernelFlowsCNNGP._block_kernel_eval(X=X_batch,Y=X_batch,kernel=self.cnn_gp_kernel,
-                                            blocksize=self.block_size, worker_rank=0, n_workers=1)
+                                            blocksize=self.block_size, worker_rank=0, n_workers=1, device=self.device)
         # theta = self.cnn_gp_kernel(X_batch, X_batch)
 
         # Calculate sample_matrix = pi_mat*theta*pi_mat^T
         sample_matrix = torch.matmul(pi_matrix, torch.matmul(theta, torch.transpose(pi_matrix, 0, 1)))
 
         # Add regularization
-        inverse_data = torch.linalg.inv(theta + self.regularization_lambda * torch.eye(theta.shape[0]))
+        inverse_data = torch.linalg.inv(theta + self.regularization_lambda * torch.eye(theta.shape[0]).to(self.device))
 
         # Delete theta matrix to free memory as it is not needed beyond this point
         del theta
 
-        inverse_sample = torch.linalg.inv(sample_matrix + self.regularization_lambda * torch.eye(sample_matrix.shape[0]))
+        inverse_sample = torch.linalg.inv(sample_matrix + self.regularization_lambda * torch.eye(sample_matrix.shape[0]).to(self.device))
 
         # Calculate numerator
         numerator = torch.matmul(torch.transpose(Y_sample,0,1), torch.matmul(inverse_sample, Y_sample))
@@ -398,7 +399,7 @@ class KernelFlowsCNNGP():
 
             # Calculate pi matrix
             pi_matrix = KernelFlowsCNNGP.pi_matrix(sample_indices=sample_indices, dimension=(N_c, N_f))
-
+            pi_matrix = pi_matrix.to(self.device)
             optimizer.zero_grad()
 
             # Calculate rho
@@ -416,7 +417,7 @@ class KernelFlowsCNNGP():
             optimizer.step()
 
             # Store value of rho
-            self.rho_values.append(rho.detach().numpy())
+            self.rho_values.append(rho.cpu().detach().numpy())
 
             del rho
 
@@ -537,8 +538,7 @@ class KernelFlowsCNNGP():
         Raises:
             ValueError: Incase incorrect differenciation strategy is selected
         """
-        if block_size is not False:
-            self.block_size = block_size
+
         if method == 'autograd':
             self._fit_autograd(X=X, Y=Y, iterations=iterations, batch_size=block_size,
                                sample_proportion=sample_proportion, optimizer=optimizer,
