@@ -659,7 +659,7 @@ class KernelFlowsCNNGP():
         # for i, param in enumerate(self.cnn_gp_kernel.parameters()):
         #     param.data = torch.tensor([new_parameters[i]]).to(self.device)
 
-        return self.cnn_gp_kernel
+        return bo_result
 
         
     def _fit_BO_Torch(self, X: torch.Tensor, Y: torch.Tensor,
