@@ -60,16 +60,9 @@ def rho(X_batch: torch.Tensor, Y_batch: torch.Tensor,
 
 
 if __name__ == "__main__":
-    # numactl --cpunodebind=N --membind=N python <pytorch_script>
-    # NOTE: For reference: https://pytorch.org/tutorials/recipes/recipes/tuning_guide.html#utilize-non-uniform-memory-access-numa-controls
     transform = transforms.Compose([transforms.ToTensor()])
-    # transform = transforms.Compose([transforms.ToTensor(),
-    #                                 T.Lambda(lambda x: torch.flatten(x)),
-    #                                 T.Lambda(lambda x: nn.functional.normalize(x, p=2, dim=0)),
-    #                                 T.Lambda(lambda x: torch.reshape(x, (28,28))),
-    #                                 T.Lambda(lambda x: torch.unsqueeze(x, dim=0))
-    #                             ])
-    batch_size = 10000
+
+    batch_size = 50000
     val_size = 1000
     N_I = 1000
 
@@ -83,20 +76,23 @@ if __name__ == "__main__":
 
     dataiter = iter(trainloader)
     X_train, Y_train = dataiter.next()
+    X_train = X_train.to(device)
+    Y_train = Y_train.to(device)
     Y_train = F.one_hot(Y_train, 10).to(torch.float32)
-    Y_train[Y_train == 0] = -1.0
 
     dataiter_val = iter(valloader)
     X_test, Y_test = dataiter_val.next()
+    X_test = X_test.to(device)
+    Y_test = Y_test.to(device)
 
-    model = Sequential(
+    model = Sequential(5.25, 3.2,
         Conv2d(kernel_size=3),
         ReLU(),
         Conv2d(kernel_size=3, stride=2),
         ReLU(),
         Conv2d(kernel_size=14, padding=0),  # equivalent to a dense layer
         )
-
+    model.to(device)
     # print(model(X_train[:100],X_train[:100]))
     # KFCNNGP = KernelFlowsCNNGP(cnn_gp_kernel=model)
     # KFCNNGP.fit(X_train, Y_train, 1, 100)
@@ -117,25 +113,13 @@ if __name__ == "__main__":
     #         var_bias=var_bias),
     # )
 
-    # model = Sequential(
-    #     Conv2d(kernel_size=28, padding=0, var_weight=1.0, var_bias=1.0),  # equivalent to a dense layer
-    #     )
-
-    # model = Sequential(
-    #     Conv2d(kernel_size=28, padding=0, var_weight=1.0, var_bias=1.0),  # equivalent to a dense layer
-    #     ReLU()
-    #     )
-
-    # model = Sequential(
-    #     ReLU(),
-    #     Conv2d(kernel_size=28, padding=0, var_weight=1.0, var_bias=1.0)  # equivalent to a dense layer
-    #     )
-
     # K_xx = model(X_train[0:10], X_train[0:10])#, X_train[0:10])
 
     pi_mat = KernelFlowsCNNGP.pi_matrix(sample_indices=np.array([1,3,5,7,9]), dimension=(5,10))
-    # rho_val = rho(X_train[:10], Y_train[:10].to(torch.float32), Y_sample=Y_train[np.array([1,3,5,7,9])].to(torch.float32), pi_matrix=pi_mat, kernel=model)
-    rho_val = rho(X_train[-10:], Y_train[-10:].to(torch.float32), Y_sample=Y_train[np.array([1,3,5,7,9])].to(torch.float32), pi_matrix=pi_mat, kernel=model)
+    pi_mat = pi_mat.to(device)
+    rho_val = rho(X_train[:10], Y_train[:10].to(torch.float32), Y_sample=Y_train[np.array([1,3,5,7,9])].to(torch.float32), pi_matrix=pi_mat, kernel=model)
+    print(rho_val)
+    # rho_val = rho(X_train[-10:], Y_train[-10:].to(torch.float32), Y_sample=Y_train[np.array([1,3,5,7,9])].to(torch.float32), pi_matrix=pi_mat, kernel=model)
     rho_val.backward()
     for params in model.parameters():
         print(params, params.grad)

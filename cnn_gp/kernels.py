@@ -44,8 +44,8 @@ class ReLUCNNGP(autograd.Function):
         xx_yy = xx*yy + f32_tiny
         eps = 1e-6
         # NOTE: Replaced rsqrt with 1/t.sqrt()+eps. Check with Prof For accuracy
-        inverse_sqrt_xx_yy = 1 / (t.sqrt(xx_yy) + eps)
-        # inverse_sqrt_xx_yy = t.rsqrt(xx_yy)
+        # inverse_sqrt_xx_yy = 1 / (t.sqrt(xx_yy) + eps)
+        inverse_sqrt_xx_yy = t.rsqrt(xx_yy)
         # Clamp these so the outputs are not NaN
         # Use small eps to avoid NaN during backpropagation
         cos_theta = (xy * inverse_sqrt_xx_yy).clamp(-1+eps, 1-eps)
