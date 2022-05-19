@@ -218,6 +218,8 @@ class KernelFlowsCNNGP():
         Returns:
             torch.Tensor: Evaluated kernel result
         """
+        no_cuda_devices = torch.cuda.device_count()
+        
         k_matrix = torch.ones((X.shape[0], Y.shape[0]), dtype=torch.float32).to(device)
         it = ProductIterator(blocksize, X, Y, worker_rank=worker_rank, n_workers=n_workers)
         for same, (i, x), (j, y) in it:
@@ -414,7 +416,10 @@ class KernelFlowsCNNGP():
                 print(f"""Warning, rho outside [0,1]. rho = {rho}""")
 
             if torch.isnan(rho):
-                raise ValueError("rho is NaN!")
+                # raise ValueError("rho is NaN!")
+                print("Warning, rho is NaN! Reseting model")
+                self.cnn_gp_kernel.var_weight = torch.tensor(np.random.rand()*10.0, device=self.device)
+                self.cnn_gp_kernel.var_bias = torch.tensor(np.random.rand()*10.0, device=self.device)
             # Calculate gradients
             rho.backward(create_graph=False)
 
