@@ -290,9 +290,9 @@ class KernelFlowsCNNGP():
             torch.save(os.getcwd() + '/saved_kernels/' + save_kernel + '_t_matrix.pt', t_matrix)
 
 #########################VERIFY - REPLACING INVERSE WITH LEAST SQ AS PER MARTIN FOR NUMERICAL REASONS##################################
-        # prediction = torch.matmul(t_matrix, torch.matmul(torch.linalg.inv(k_matrix), Y_train))
-        k_inv_Y = torch.linalg.lstsq(k_matrix, Y_train, rcond=1e-8).solution
-        prediction = torch.matmul(t_matrix, k_inv_Y)
+        prediction = torch.matmul(t_matrix, torch.matmul(torch.linalg.inv(k_matrix), Y_train))
+        # k_inv_Y = torch.linalg.lstsq(k_matrix, Y_train, rcond=1e-8).solution
+        # prediction = torch.matmul(t_matrix, k_inv_Y)
 #########################VERIFY - REPLACING INVERSE WITH LEAST SQ AS PER MARTIN FOR NUMERICAL REASONS##################################
         return prediction, k_matrix, t_matrix
 
@@ -397,6 +397,10 @@ class KernelFlowsCNNGP():
         # denominator = torch.matmul(torch.transpose(Y_batch,0,1), inverse_data_Y_data)
         # Calculate rho
         rho = 1 - torch.trace(numerator)/torch.trace(denominator)
+
+        if rho <= 0.0:
+            print("Warning, rho < 0. Setting to 1.")
+            rho.data = torch.tensor(1, device=self.device)
 
         # skopt Bayesian optimization requires a scalar output from the blackbox function
         self.rho_values.append(rho.cpu().numpy().item())
