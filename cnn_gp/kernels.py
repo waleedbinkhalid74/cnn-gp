@@ -1,4 +1,3 @@
-from turtle import forward
 from typing import Tuple
 import torch as t
 import torch.nn as nn

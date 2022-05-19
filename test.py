@@ -38,7 +38,7 @@ if __name__ == '__main__':
 
     data_string = ''
 
-    model = Sequential(np.random.rand()*5.0, np.random.rand()*5.0,
+    model = Sequential(2.25, 1.25,
         Conv2d(kernel_size=3),
         ReLU(),
         Conv2d(kernel_size=3, stride=2),
@@ -50,15 +50,15 @@ if __name__ == '__main__':
     
     model.to(device)
 
-    N_i_arr = np.arange(50, 200, 50)
+    N_i_arr = np.arange(50, 2000, 50)
     rand_acc = []
     for N_i in tqdm(N_i_arr):
         Y_predictions, k_mat, t_mat = KernelFlowsCNNGP.kernel_regression(X_test=X_test, X_train=X_train[:N_i], Y_train=Y_train[:N_i], kernel=model, regularization_lambda=0.0001, blocksize=250, device=device)
         Y_predictions_labels = np.argmax(Y_predictions.cpu(), axis=1)
         rand_acc.append(accuracy_score(Y_predictions_labels, Y_test.cpu().numpy()) * 100)
-
+    torch.cuda.empty_cache()
     KF = KernelFlowsCNNGP(cnn_gp_kernel=model, device=device)
-    KF._fit_autograd(X=X_train, Y=Y_train, iterations=10, batch_size=450, sample_proportion = 0.5)
+    KF._fit_autograd(X=X_train, Y=Y_train, iterations=2000, batch_size=450, sample_proportion = 0.5)
 
     trained_acc = []
     for N_i in tqdm(N_i_arr):
