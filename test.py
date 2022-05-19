@@ -38,7 +38,7 @@ if __name__ == '__main__':
 
     data_string = ''
 
-    model = Sequential(2.25, 1.25,
+    model = Sequential(np.random.rand()*10.0, np.random.rand()*10.0,
         Conv2d(kernel_size=3),
         ReLU(),
         Conv2d(kernel_size=3, stride=2),
@@ -70,6 +70,7 @@ if __name__ == '__main__':
 
     data_string += 'random_network_accuracy: ' + str(rand_acc) + '\n'
     data_string += 'trained_network_accuracy: ' + str(trained_acc) + '\n'
+    data_string += 'rho_values: ' + str(KF.rho_values) + '\n'
     print(data_string)
     import os
     if not os.path.exists(os.getcwd() + '/results'):
