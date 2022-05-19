@@ -418,8 +418,10 @@ class KernelFlowsCNNGP():
             if torch.isnan(rho):
                 # raise ValueError("rho is NaN!")
                 print("Warning, rho is NaN! Reseting model")
-                self.cnn_gp_kernel.var_weight = torch.tensor(np.random.rand()*10.0, device=self.device)
-                self.cnn_gp_kernel.var_bias = torch.tensor(np.random.rand()*10.0, device=self.device)
+                self.cnn_gp_kernel.var_weight.data = torch.tensor(np.random.rand()*10.0, device=self.device)
+                self.cnn_gp_kernel.var_bias.data = torch.tensor(np.random.rand()*10.0, device=self.device)
+                self.cnn_gp_kernel.var_weight.grad = torch.tensor(0.0, device=self.device)
+                self.cnn_gp_kernel.var_bias.grad = torch.tensor(0.0, device=self.device)
             # Calculate gradients
             rho.backward(create_graph=False)
 
