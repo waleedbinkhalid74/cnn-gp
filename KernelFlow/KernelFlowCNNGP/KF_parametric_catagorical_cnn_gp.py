@@ -231,7 +231,7 @@ class KernelFlowsCNNGP():
     def kernel_regression(X_test: torch.Tensor, X_train: torch.Tensor,
                           Y_train: torch.Tensor, kernel: nn.Module, regularization_lambda = 0.0001,
                           blocksize: int = 200, save_kernel: str = False,
-                          worker_rank:int = 0, n_workers: int=1) -> np.ndarray:
+                          worker_rank:int = 0, n_workers: int=1, device='cpu') -> np.ndarray:
         """Applies Kernel regression to provided data
 
         Args:
@@ -253,15 +253,17 @@ class KernelFlowsCNNGP():
                                                             Y=X_train,
                                                             blocksize=blocksize,
                                                             kernel=kernel,
+                                                            device=device,
                                                             **kwargs)
 
             t_matrix = KernelFlowsCNNGP._block_kernel_eval(X=X_test,
                                                             Y=X_train,
                                                             blocksize=blocksize,
                                                             kernel=kernel,
+                                                            device=device,
                                                             **kwargs)
 
-        k_matrix += regularization_lambda * torch.eye(k_matrix.shape[0])
+        k_matrix += regularization_lambda * torch.eye(k_matrix.shape[0]).to(device)
 
 
         if save_kernel:
@@ -269,9 +271,9 @@ class KernelFlowsCNNGP():
             torch.save(os.getcwd() + '/saved_kernels/' + save_kernel + '_t_matrix.pt', t_matrix)
 
 #########################VERIFY - REPLACING INVERSE WITH LEAST SQ AS PER MARTIN FOR NUMERICAL REASONS##################################
-        prediction = torch.matmul(t_matrix, torch.matmul(torch.linalg.inv(k_matrix), Y_train))
-        # k_inv_Y, _, _, _ = lstsq(k_matrix, Y_train.detach().numpy(), cond=1e-8)
-        # prediction_lstsq = np.matmul(t_matrix, k_inv_Y)
+        # prediction = torch.matmul(t_matrix, torch.matmul(torch.linalg.inv(k_matrix), Y_train))
+        k_inv_Y = torch.linalg.lstsq(k_matrix, Y_train, rcond=1e-8).solution
+        prediction = torch.matmul(t_matrix, k_inv_Y)
 #########################VERIFY - REPLACING INVERSE WITH LEAST SQ AS PER MARTIN FOR NUMERICAL REASONS##################################
         return prediction, k_matrix, t_matrix
 
@@ -329,16 +331,19 @@ class KernelFlowsCNNGP():
 
         # Add regularization
         inverse_data = torch.linalg.inv(theta + self.regularization_lambda * torch.eye(theta.shape[0]).to(self.device))
+        # inverse_data_Y_batch = torch.linalg.lstsq(theta + self.regularization_lambda * torch.eye(theta.shape[0]).to(self.device), Y_batch, rcond=1e-8).solution
 
         # Delete theta matrix to free memory as it is not needed beyond this point
-        del theta
 
-        inverse_sample = torch.linalg.inv(sample_matrix + self.regularization_lambda * torch.eye(sample_matrix.shape[0]).to(self.device))
+        # inverse_sample = torch.linalg.inv(sample_matrix + self.regularization_lambda * torch.eye(sample_matrix.shape[0]).to(self.device))
+        inverse_sample_Y_sample = torch.linalg.lstsq(sample_matrix + self.regularization_lambda * torch.eye(sample_matrix.shape[0]).to(self.device), Y_sample, rcond=1e-8).solution
 
         # Calculate numerator
-        numerator = torch.matmul(torch.transpose(Y_sample,0,1), torch.matmul(inverse_sample, Y_sample))
+        # numerator = torch.matmul(torch.transpose(Y_sample,0,1), torch.matmul(inverse_sample, Y_sample))
+        numerator = torch.matmul(torch.transpose(Y_sample,0,1), inverse_sample_Y_sample)
         # Calculate denominator
         denominator = torch.matmul(torch.transpose(Y_batch,0,1), torch.matmul(inverse_data, Y_batch))
+        # denominator = torch.matmul(torch.transpose(Y_batch,0,1), inverse_data_Y_batch)
         # Calculate rho
         rho = 1 - torch.trace(numerator)/torch.trace(denominator)
 
@@ -477,6 +482,7 @@ class KernelFlowsCNNGP():
 
             # Calculate pi matrix
             pi_matrix = KernelFlowsCNNGP.pi_matrix(sample_indices=sample_indices, dimension=(N_c, N_f))
+            pi_matrix = pi_matrix.to(self.device)
             optimizer.zero_grad()
 
             # NOTE: Number of forward passes = No_parameters + 1 per iteration!
@@ -514,7 +520,7 @@ class KernelFlowsCNNGP():
             optimizer.step()
 
             # Store value of rho
-            self.rho_values.append(rho.detach().numpy())
+            self.rho_values.append(rho.cpu().detach().numpy())
 
             del rho
 

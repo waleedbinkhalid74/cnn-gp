@@ -277,9 +277,9 @@ class ReLU(NNGPKernel):
 
         # NOTE: Replaced rsqrt with 1/t.sqrt()+eps. This is because diff of 1/sqrt(xx_yy) is 1 / (2*xx_yy^1.5) and this 1.5 power turns the small f32tiny into zero
         # Check with Prof For accuracy
-        inverse_sqrt_xx_yy = 1 / (t.sqrt(xx_yy) + eps)
-        cos_theta = (kp.xy * inverse_sqrt_xx_yy).clamp(-1+eps, 1-eps)
-        # cos_theta = (kp.xy * xx_yy.rsqrt()).clamp(-1+eps, 1-eps)
+        # inverse_sqrt_xx_yy = 1 / (t.sqrt(xx_yy) + eps)
+        # cos_theta = (kp.xy * inverse_sqrt_xx_yy).clamp(-1+eps, 1-eps)
+        cos_theta = (kp.xy * xx_yy.rsqrt()).clamp(-1+eps, 1-eps)
 
         sin_theta = t.sqrt((xx_yy - kp.xy**2).clamp(min=eps))
         # sin_theta = t.sqrt((xx_yy - kp.xy**2).clamp(min=0))
