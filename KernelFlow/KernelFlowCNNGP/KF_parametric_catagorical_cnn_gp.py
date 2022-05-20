@@ -327,25 +327,23 @@ class KernelFlowsCNNGP():
         theta = KernelFlowsCNNGP._block_kernel_eval(X=X_batch,Y=X_batch,kernel=self.cnn_gp_kernel,
                                             blocksize=self.block_size, worker_rank=0, n_workers=1, device=self.device)
         # theta = self.cnn_gp_kernel(X_batch, X_batch)
+        theta = theta.cpu()
+        pi_matrix = pi_matrix.cpu()
 
         # Calculate sample_matrix = pi_mat*theta*pi_mat^T
         sample_matrix = torch.matmul(pi_matrix, torch.matmul(theta, torch.transpose(pi_matrix, 0, 1)))
 
         # Add regularization
-        inverse_data = torch.linalg.inv(theta + self.regularization_lambda * torch.eye(theta.shape[0]).to(self.device))
-        # inverse_data_Y_batch = torch.linalg.lstsq(theta + self.regularization_lambda * torch.eye(theta.shape[0]).to(self.device), Y_batch, rcond=1e-8).solution
+        inverse_data = torch.linalg.inv(theta + self.regularization_lambda * torch.eye(theta.shape[0]))
 
         # Delete theta matrix to free memory as it is not needed beyond this point
 
-        # inverse_sample = torch.linalg.inv(sample_matrix + self.regularization_lambda * torch.eye(sample_matrix.shape[0]).to(self.device))
-        inverse_sample_Y_sample = torch.linalg.lstsq(sample_matrix + self.regularization_lambda * torch.eye(sample_matrix.shape[0]).to(self.device), Y_sample, rcond=1e-8).solution
+        inverse_sample = torch.linalg.inv(sample_matrix + self.regularization_lambda * torch.eye(sample_matrix.shape[0]))
 
         # Calculate numerator
-        # numerator = torch.matmul(torch.transpose(Y_sample,0,1), torch.matmul(inverse_sample, Y_sample))
-        numerator = torch.matmul(torch.transpose(Y_sample,0,1), inverse_sample_Y_sample)
+        numerator = torch.matmul(torch.transpose(Y_sample.cpu(),0,1), torch.matmul(inverse_sample, Y_sample.cpu()))
         # Calculate denominator
-        denominator = torch.matmul(torch.transpose(Y_batch,0,1), torch.matmul(inverse_data, Y_batch))
-        # denominator = torch.matmul(torch.transpose(Y_batch,0,1), inverse_data_Y_batch)
+        denominator = torch.matmul(torch.transpose(Y_batch.cpu(),0,1), torch.matmul(inverse_data, Y_batch.cpu()))
         # Calculate rho
         rho = 1 - torch.trace(numerator)/torch.trace(denominator)
 
@@ -411,6 +409,7 @@ class KernelFlowsCNNGP():
 
             # Calculate rho
             rho = self.rho(X_batch=X_batch, Y_batch=Y_batch, Y_sample=Y_sample, pi_matrix=pi_matrix)
+            rho.to(device=self.device)
             if  rho > 1.01 or rho < -0.1:
                 warnings.warn("Warning, rho outside [0,1]")
                 print(f"""Warning, rho outside [0,1]. rho = {rho}""")
