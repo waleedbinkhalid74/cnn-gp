@@ -290,9 +290,9 @@ class KernelFlowsCNNGP():
             torch.save(os.getcwd() + '/saved_kernels/' + save_kernel + '_t_matrix.pt', t_matrix)
 
 #########################VERIFY - REPLACING INVERSE WITH LEAST SQ AS PER MARTIN FOR NUMERICAL REASONS##################################
-        prediction = torch.matmul(t_matrix, torch.matmul(torch.linalg.inv(k_matrix), Y_train))
-        # k_inv_Y = torch.linalg.lstsq(k_matrix, Y_train, rcond=1e-8).solution
-        # prediction = torch.matmul(t_matrix, k_inv_Y)
+        # prediction = torch.matmul(t_matrix, torch.matmul(torch.linalg.inv(k_matrix), Y_train))
+        k_inv_Y = torch.linalg.lstsq(k_matrix.cpu(), Y_train.cpu(), rcond=1e-8).solution
+        prediction = torch.matmul(t_matrix.cpu(), k_inv_Y)
 #########################VERIFY - REPLACING INVERSE WITH LEAST SQ AS PER MARTIN FOR NUMERICAL REASONS##################################
         return prediction, k_matrix, t_matrix
 
@@ -376,24 +376,22 @@ class KernelFlowsCNNGP():
                                                 blocksize=self.block_size, worker_rank=0, n_workers=1, 
                                                 device=self.device)
         # theta = self.cnn_gp_kernel(X_batch, X_batch)
-
+        pi_matrix = pi_matrix.cpu()
+        theta = theta.cpu()
         # Calculate sample_matrix = pi_mat*theta*pi_mat^T
         sample_matrix = torch.matmul(pi_matrix, torch.matmul(theta, torch.transpose(pi_matrix, 0, 1)))
         # Add regularization
 
-        inverse_data = torch.linalg.inv(theta + self.regularization_lambda * torch.eye(theta.shape[0]).to(self.device))
-        # inverse_data_Y_data = torch.linalg.lstsq(theta + self.regularization_lambda * torch.eye(theta.shape[0]).to(self.device), Y_batch, rcond=1e-8).solution
-        try:
-            inverse_sample = torch.linalg.inv(sample_matrix + self.regularization_lambda * torch.eye(sample_matrix.shape[0]).to(self.device))
-        except Exception:
-            pass
+        inverse_data = torch.linalg.inv(theta + self.regularization_lambda * torch.eye(theta.shape[0]))
+        # inverse_data_Y_data = torch.linalg.lstsq(theta + self.regularization_lambda * torch.eye(theta.shape[0]), Y_batch, rcond=1e-8).solution
+        inverse_sample = torch.linalg.inv(sample_matrix + self.regularization_lambda * torch.eye(sample_matrix.shape[0]))
         # inverse_sample_Y_sample = torch.linalg.lstsq(sample_matrix + self.regularization_lambda * torch.eye(sample_matrix.shape[0]).to(self.device), Y_sample, rcond=1e-8).solution
 
         # Calculate numerator
-        numerator = torch.matmul(torch.transpose(Y_sample,0,1), torch.matmul(inverse_sample, Y_sample))
+        numerator = torch.matmul(torch.transpose(Y_sample.cpu(),0,1), torch.matmul(inverse_sample, Y_sample.cpu()))
         # numerator = torch.matmul(torch.transpose(Y_sample,0,1), inverse_sample_Y_sample)
         # Calculate denominator
-        denominator = torch.matmul(torch.transpose(Y_batch,0,1), torch.matmul(inverse_data, Y_batch))
+        denominator = torch.matmul(torch.transpose(Y_batch.cpu(),0,1), torch.matmul(inverse_data, Y_batch.cpu()))
         # denominator = torch.matmul(torch.transpose(Y_batch,0,1), inverse_data_Y_data)
         # Calculate rho
         rho = 1 - torch.trace(numerator)/torch.trace(denominator)
