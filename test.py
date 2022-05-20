@@ -57,8 +57,10 @@ if __name__ == '__main__':
         Y_predictions_labels = np.argmax(Y_predictions.cpu(), axis=1)
         rand_acc.append(accuracy_score(Y_predictions_labels, Y_test.cpu().numpy()) * 100)
 
-    KF = KernelFlowsCNNGP(cnn_gp_kernel=model, device=device)
-    KF._fit_autograd(X=X_train, Y=Y_train, iterations=50, batch_size=450, sample_proportion = 0.5)
+    # KF = KernelFlowsCNNGP(cnn_gp_kernel=model, device=device)
+    # KF._fit_autograd(X=X_train, Y=Y_train, iterations=50, batch_size=450, sample_proportion = 0.5)
+    KF_RBF = KernelFlowsCNNGP(model, lr=0.1, device=device)
+    KF_RBF.fit(X_train, Y_train, 2000, 600, 0.5, method='finite difference')
 
     trained_acc = []
     for N_i in tqdm(N_i_arr):
