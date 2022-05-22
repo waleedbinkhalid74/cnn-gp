@@ -274,8 +274,9 @@ class KernelFlowsCNNGP():
 
 #########################VERIFY - REPLACING INVERSE WITH LEAST SQ AS PER MARTIN FOR NUMERICAL REASONS##################################
         # prediction = torch.matmul(t_matrix, torch.matmul(torch.linalg.inv(k_matrix), Y_train))
-        k_inv_Y = torch.linalg.lstsq(k_matrix, Y_train, rcond=1e-8).solution
-        prediction = torch.matmul(t_matrix, k_inv_Y)
+
+        k_inv_Y = torch.linalg.lstsq(k_matrix.cpu(), Y_train.cpu(), rcond=1e-8).solution
+        prediction = torch.matmul(t_matrix.cpu(), k_inv_Y)
 #########################VERIFY - REPLACING INVERSE WITH LEAST SQ AS PER MARTIN FOR NUMERICAL REASONS##################################
         return prediction, k_matrix, t_matrix
 
@@ -421,6 +422,7 @@ class KernelFlowsCNNGP():
                 self.cnn_gp_kernel.var_bias.data = torch.tensor(np.random.rand()*10.0, device=self.device)
                 self.cnn_gp_kernel.var_weight.grad = torch.tensor(0.0, device=self.device)
                 self.cnn_gp_kernel.var_bias.grad = torch.tensor(0.0, device=self.device)
+                return
             # Calculate gradients
             rho.backward(create_graph=False)
 
