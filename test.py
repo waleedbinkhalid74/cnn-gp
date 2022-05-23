@@ -1,3 +1,4 @@
+import sys
 from KernelFlow import KernelFlowsCNNGP
 from torchvision import datasets, transforms
 import torch
@@ -7,8 +8,78 @@ from torchvision import datasets, transforms
 from tqdm import tqdm
 from cnn_gp import Sequential, Conv2d, ReLU
 from sklearn.metrics import accuracy_score
+import os
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
+def execute(model):
+    N_i_arr = np.arange(100, 2000, 100)
+    data_string = ''
+    data_string += 'initial_parameters: ' + str(model.var_bias) + ', ' +  str(model.var_weight) + '\n'    
+    rand_acc = []
+    for N_i in tqdm(N_i_arr):
+        Y_predictions, k_mat, t_mat = KernelFlowsCNNGP.kernel_regression(X_test=X_test, X_train=X_train[:N_i], Y_train=Y_train[:N_i], kernel=model, regularization_lambda=0.0001, blocksize=250, device=device)
+        Y_predictions_labels = np.argmax(Y_predictions.cpu(), axis=1)
+        rand_acc.append(accuracy_score(Y_predictions_labels, Y_test.cpu().numpy()) * 100)
+    torch.cuda.empty_cache()
+    KF = KernelFlowsCNNGP(cnn_gp_kernel=model, device=device)
+    KF._fit_finite_difference(X=X_train, Y=Y_train, iterations=1000, batch_size=600, sample_proportion = 0.5)
+    #KF = KernelFlowsCNNGP(model, lr=0.1, device=device)
+    #KF.fit(X_train, Y_train, 1000, 600, 0.5, method='finite difference')
+
+    trained_acc = []
+    for N_i in tqdm(N_i_arr):
+        Y_predictions, k_mat, t_mat = KernelFlowsCNNGP.kernel_regression(X_test=X_test, X_train=X_train[:N_i], Y_train=Y_train[:N_i], kernel=model, regularization_lambda=0.0001, blocksize=250, device=device)
+        Y_predictions_labels = np.argmax(Y_predictions.cpu(), axis=1)
+        trained_acc.append(accuracy_score(Y_predictions_labels, Y_test.cpu().numpy()) * 100)
+
+    data_string += 'final_parameters: ' + str(model.var_bias) + ', ' +  str(model.var_weight) + '\n'
+
+    data_string += 'random_network_accuracy: ' + str(rand_acc) + '\n'
+    data_string += 'trained_network_accuracy: ' + str(trained_acc) + '\n'
+    data_string += 'rho_values: ' + str(KF.rho_values) + '\n'
+    print(data_string)
+    return data_string
+
+def execute_simple_network_test():
+    print("Executing simple network training")
+    model = Sequential(np.random.rand()*100.0, np.random.rand()*100.0,
+                        Conv2d(kernel_size=3),
+                        ReLU(),
+                        Conv2d(kernel_size=3, stride=2),
+                        ReLU(),
+                        Conv2d(kernel_size=14, padding=0),  # equivalent to a dense layer
+                         )
+    
+    model.to(device)
+    data_string = execute(model)
+    if not os.path.exists(os.getcwd() + '/results'):
+        os.makedirs(os.getcwd() +'/results')
+    text_file = open(os.getcwd() + "/results/autograd_training_simple.txt", "w")
+    n = text_file.write(data_string)
+    text_file.close()
+
+def execute_covnet_test():
+    print("Executing covnet training")
+    layers = []
+    for _ in range(7):  # n_layers
+        layers += [
+            Conv2d(kernel_size=7, padding="same"),
+            ReLU(),
+        ]
+    model = Sequential(np.random.rand() * 100.0, np.random.rand() * 50.0,
+        *layers,
+        Conv2d(kernel_size=28, padding=0),
+    )
+
+    model.to(device)
+
+    data_string = execute(model)
+    if not os.path.exists(os.getcwd() + '/results'):
+        os.makedirs(os.getcwd() +'/results')
+    text_file = open(os.getcwd() + "/results/autograd_training_covnet.txt", "w")
+    n = text_file.write(data_string)
+    text_file.close()
 
 if __name__ == '__main__':
     transform = transforms.Compose([transforms.ToTensor()])
@@ -36,50 +107,9 @@ if __name__ == '__main__':
     X_test = X_test.to(device)
     Y_test = Y_test.to(device)
 
-    data_string = ''
-
-    model = Sequential(np.random.rand()*100.0, np.random.rand()*100.0,
-        Conv2d(kernel_size=3),
-        ReLU(),
-        Conv2d(kernel_size=3, stride=2),
-        ReLU(),
-        Conv2d(kernel_size=14, padding=0),  # equivalent to a dense layer
-        )
-
-    data_string += 'initial_parameters: ' + str(model.var_bias) + ', ' +  str(model.var_weight) + '\n'
     
-    model.to(device)
 
-    N_i_arr = np.arange(50, 2000, 100)
-    rand_acc = []
-    for N_i in tqdm(N_i_arr):
-        Y_predictions, k_mat, t_mat = KernelFlowsCNNGP.kernel_regression(X_test=X_test, X_train=X_train[:N_i], Y_train=Y_train[:N_i], kernel=model, regularization_lambda=0.0001, blocksize=250, device=device)
-        Y_predictions_labels = np.argmax(Y_predictions.cpu(), axis=1)
-        rand_acc.append(accuracy_score(Y_predictions_labels, Y_test.cpu().numpy()) * 100)
-    torch.cuda.empty_cache()
-    KF = KernelFlowsCNNGP(cnn_gp_kernel=model, device=device)
-
-
-    KF._fit_autograd(X=X_train, Y=Y_train, iterations=1000, batch_size=550, sample_proportion = 0.5)
-    #KF = KernelFlowsCNNGP(model, lr=0.1, device=device)
-    #KF.fit(X_train, Y_train, 1000, 600, 0.5, method='finite difference')
-
-
-    trained_acc = []
-    for N_i in tqdm(N_i_arr):
-        Y_predictions, k_mat, t_mat = KernelFlowsCNNGP.kernel_regression(X_test=X_test, X_train=X_train[:N_i], Y_train=Y_train[:N_i], kernel=model, regularization_lambda=0.0001, blocksize=250, device=device)
-        Y_predictions_labels = np.argmax(Y_predictions.cpu(), axis=1)
-        trained_acc.append(accuracy_score(Y_predictions_labels, Y_test.cpu().numpy()) * 100)
-
-    data_string += 'final_parameters: ' + str(model.var_bias) + ', ' +  str(model.var_weight) + '\n'
-
-    data_string += 'random_network_accuracy: ' + str(rand_acc) + '\n'
-    data_string += 'trained_network_accuracy: ' + str(trained_acc) + '\n'
-    data_string += 'rho_values: ' + str(KF.rho_values) + '\n'
-    print(data_string)
-    import os
-    if not os.path.exists(os.getcwd() + '/results'):
-        os.makedirs(os.getcwd() +'/results')
-    text_file = open(os.getcwd() + "/results/autograd_training.txt", "w")
-    n = text_file.write(data_string)
-    text_file.close()
+    if sys.argv[1] == 'simple':
+        execute_simple_network_test()
+    elif sys.argv[1] == 'covnet':
+        execute_covnet_test()
