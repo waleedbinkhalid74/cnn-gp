@@ -10,6 +10,16 @@ import torch
 import torch.nn as nn
 import numpy as np
 from tqdm import tqdm
+from functools import partial
+from skopt import gp_minimize
+
+class tqdm_skopt(object):
+
+    def __init__(self, **kwargs):
+        self._bar = tqdm(**kwargs)
+
+    def __call__(self, res=1):
+        self._bar.update(1)
 
 ACCEPTED_OPTIMIZERS = ['SGD', 'ADAM']
 
@@ -218,7 +228,6 @@ class KernelFlowsCNNGP():
         Returns:
             torch.Tensor: Evaluated kernel result
         """
-        no_cuda_devices = torch.cuda.device_count()
         
         k_matrix = torch.ones((X.shape[0], Y.shape[0]), dtype=torch.float32).to(device)
         it = ProductIterator(blocksize, X, Y, worker_rank=worker_rank, n_workers=n_workers)
@@ -272,12 +281,9 @@ class KernelFlowsCNNGP():
             torch.save(os.getcwd() + '/saved_kernels/' + save_kernel + '_k_matrix.pt', k_matrix)
             torch.save(os.getcwd() + '/saved_kernels/' + save_kernel + '_t_matrix.pt', t_matrix)
 
-#########################VERIFY - REPLACING INVERSE WITH LEAST SQ AS PER MARTIN FOR NUMERICAL REASONS##################################
         # prediction = torch.matmul(t_matrix, torch.matmul(torch.linalg.inv(k_matrix), Y_train))
-
         k_inv_Y = torch.linalg.lstsq(k_matrix.cpu(), Y_train.cpu(), rcond=1e-8).solution
         prediction = torch.matmul(t_matrix.cpu(), k_inv_Y)
-#########################VERIFY - REPLACING INVERSE WITH LEAST SQ AS PER MARTIN FOR NUMERICAL REASONS##################################
         return prediction, k_matrix, t_matrix
 
 
@@ -305,6 +311,66 @@ class KernelFlowsCNNGP():
             pi[i][sample_indices[i]] = 1
 
         return pi
+        
+    def _rho_bo(self, batch_size, sample_proportion, params) -> torch.Tensor:
+
+        sample_indices, batch_indices = KernelFlowsCNNGP.batch_creation(dataset_size= self._X.shape[0],
+                                                                        batch_size= batch_size,
+                                                                        sample_proportion= sample_proportion)
+        X_batch = self.X[batch_indices]
+        Y_batch = self.Y[batch_indices]
+        # X_sample = X_batch[sample_indices]
+        Y_sample = Y_batch[sample_indices]
+        N_f = len(batch_indices)
+        N_c = len(sample_indices)
+
+        # Calculate pi matrix
+        pi_matrix = self.pi_matrix(sample_indices=sample_indices, dimension=(N_c, N_f))
+
+        # assert len(params) == len(list(self.cnn_gp_kernel.parameters()))
+        # rho = 1 - trace(Y_s^T * K(X_s, X_s)^-1 * Y_s) / trace(Y_b^T K(X_b, X_b)^-1 Y_b)
+
+        # Calculation of two kernels is expensive so we use proposition 3.2 Owhadi 2018
+        # rho = 1 - trace(Y_s^T * (pi_mat * K(X_b, X_b)^-1 pi_mat^T) * Y_s) / trace(Y_b^T K(X_b, X_b)^-1 Y_b)
+
+        # Set the parameters of the kernel
+        no_params = len(list(self.cnn_gp_kernel.parameters()))
+        for i, param in enumerate(self.cnn_gp_kernel.parameters()):
+            param.data = torch.tensor([params[i % 2]]).to(self.device)
+
+        # Calculate kernel theta = Kernel(X_Nf, X_Nf). NOTE: This is the most expensive step of the algorithm
+        with torch.no_grad():
+            theta = KernelFlowsCNNGP._block_kernel_eval(X=X_batch,Y=X_batch,kernel=self.cnn_gp_kernel,
+                                                blocksize=self.block_size, worker_rank=0, n_workers=1, 
+                                                device=self.device)
+        # theta = self.cnn_gp_kernel(X_batch, X_batch)
+        theta = theta.cpu()
+        # Calculate sample_matrix = pi_mat*theta*pi_mat^T
+        sample_matrix = torch.matmul(pi_matrix, torch.matmul(theta, torch.transpose(pi_matrix, 0, 1)))
+        # Add regularization
+
+        inverse_data = torch.linalg.inv(theta + self.regularization_lambda * torch.eye(theta.shape[0]))
+        # inverse_data_Y_data = torch.linalg.lstsq(theta + self.regularization_lambda * torch.eye(theta.shape[0]), Y_batch, rcond=1e-8).solution
+        inverse_sample = torch.linalg.inv(sample_matrix + self.regularization_lambda * torch.eye(sample_matrix.shape[0]))
+        # inverse_sample_Y_sample = torch.linalg.lstsq(sample_matrix + self.regularization_lambda * torch.eye(sample_matrix.shape[0]).to(self.device), Y_sample, rcond=1e-8).solution
+
+        # Calculate numerator
+        numerator = torch.matmul(torch.transpose(Y_sample.cpu(),0,1), torch.matmul(inverse_sample, Y_sample.cpu()))
+        # numerator = torch.matmul(torch.transpose(Y_sample,0,1), inverse_sample_Y_sample)
+        # Calculate denominator
+        denominator = torch.matmul(torch.transpose(Y_batch.cpu(),0,1), torch.matmul(inverse_data, Y_batch.cpu()))
+        # denominator = torch.matmul(torch.transpose(Y_batch,0,1), inverse_data_Y_data)
+        # Calculate rho
+        rho = 1 - torch.trace(numerator)/torch.trace(denominator)
+
+        if rho <= 0.0:
+            print("Warning, rho < 0. Setting to 1.")
+            rho.data = torch.tensor(1, device=self.device)
+
+        # skopt Bayesian optimization requires a scalar output from the blackbox function
+        self.rho_values.append(rho.cpu().numpy().item())
+        return rho.cpu().numpy().item()
+
 
     def rho(self, X_batch: torch.Tensor, Y_batch: torch.Tensor,
             Y_sample: torch.Tensor, pi_matrix: torch.Tensor) -> torch.Tensor:
@@ -431,8 +497,7 @@ class KernelFlowsCNNGP():
 
             # Store value of rho
             self.rho_values.append(rho.cpu().detach().numpy())
-
-            del rho
+        return None
 
     def _fit_finite_difference(self, X: torch.Tensor, Y: torch.Tensor, iterations: int, batch_size: int = False,
             sample_proportion: float = 0.5, optimizer: str = 'SGD', adaptive_size: bool = False, dw: float = 1e-4):
@@ -530,39 +595,83 @@ class KernelFlowsCNNGP():
             # Store value of rho
             self.rho_values.append(rho.cpu().detach().numpy())
 
-            del rho
+        return None
 
 
-    def fit(self, X: torch.Tensor, Y: torch.Tensor, iterations: int, block_size: int = False,
+    def _fit_bayesian_optimization(self, X: torch.Tensor, Y: torch.Tensor,
+                                   iterations: int , batch_size: int = False,
+                                   sample_proportion: float = 0.5,
+                                   parameter_bounds_BO: list= None, random_starts: int = 15):
+
+        self.X = X
+        self.Y = Y
+        # Since this is Bayesian optimization we do not need any iterations
+
+        # Strip the arguments other than parameters since gp_minimize does not accept auxilary arguments as of yet.
+        # This is an open issue Reference: https://github.com/scikit-optimize/scikit-optimize/issues/240
+        # TODO: Once the args feature is added this can be made cleaner.
+        rho_objective = partial(self._rho_bo, batch_size, sample_proportion)
+
+        # QUESTION: Can the bounds be negative?
+        if parameter_bounds_BO is None:
+            no_params = len(list(self.cnn_gp_kernel.parameters()))
+            lower_bounds = list(0.25 * np.ones(no_params).astype(np.float64))
+            upper_bounds = list(200.0*np.ones(no_params).astype(np.float64))
+            parameter_bounds = list(zip(lower_bounds, upper_bounds))
+        else:
+            parameter_bounds = parameter_bounds_BO
+        # Applied gaussian process based bayesian optimization
+        bo_result = gp_minimize(rho_objective,  # the function to minimize
+                        parameter_bounds,   # the bounds on each parameter
+                        acq_func="EI",      # the acquisition function
+                        n_calls=iterations,         # the number of evaluations of f
+                        n_random_starts=random_starts,  # the number of random initialization points
+                        # noise=0.1**2,       # the noise level (optional)
+                        random_state=1234,  # the random seed
+                        callback=[tqdm_skopt(total=iterations, desc="Bayesian Optimization")])
+
+        params = bo_result.x
+        no_params = len(list(self.cnn_gp_kernel.parameters()))
+        for i, param in enumerate(self.cnn_gp_kernel.parameters()):
+            param.data = torch.tensor([params[i % 2]]).to(self.device)
+
+
+        return bo_result
+
+    def fit(self, X: torch.Tensor, Y: torch.Tensor, iterations: int, batch_size: int = False,
             sample_proportion: float = 0.5, method:str = 'autograd', optimizer: str = 'SGD',
-            dw: float = 0.001, adaptive_size: bool = False):
+            dw: float = 0.001, adaptive_size: bool = False, parameter_bounds_BO: list = None,
+            random_starts: int = 15):
         """Fits the Kernel with optimial hyperparameters based on the Kernel Flow algorithm
-
         Args:
             X (torch.Tensor): Training dataset values
             Y (torch.Tensor): Training dataset labels
             iterations (int): Number of iterations
-            batch_size (int, optional): Batch size for block evaluations. Defaults to False.
+            batch_size (int, optional): Batch size N_f. Defaults to False.
             sample_proportion (float, optional): Proportion of the batch against which rho is calculated. Defaults to 0.5.
             method (str, optional): Differenciation method. Defaults to 'autograd'.
             optimizer (str, optional): Optimization technique. Defaults to 'SGD'.
             dw (float, optional): Increment perturbation for finite difference. Not needed for autograd. Defaults to 0.001.
             adaptive_size (bool, optional): If sample proportion should change with iterations. Defaults to False.
-
         Raises:
             ValueError: Incase incorrect differenciation strategy is selected
         """
-
         if method == 'autograd':
-            self._fit_autograd(X=X, Y=Y, iterations=iterations, batch_size=block_size,
+            return self._fit_autograd(X=X, Y=Y, iterations=iterations, batch_size=batch_size,
                                sample_proportion=sample_proportion, optimizer=optimizer,
                                adaptive_size=adaptive_size)
         elif method == 'finite difference':
-            self._fit_finite_difference(X=X, Y=Y, iterations=iterations, batch_size=block_size,
-                                        sample_proportion=sample_proportion, optimizer=optimizer,
-                                        dw=dw, adaptive_size=adaptive_size)
+            return self._fit_finite_difference(X=X, Y=Y, iterations=iterations, batch_size=batch_size,
+                                        sample_proportion=sample_proportion,
+                                        optimizer=optimizer, dw=dw, adaptive_size=adaptive_size)
+        elif method == 'bayesian optimization':
+            return self._fit_bayesian_optimization(X=X, Y=Y, batch_size=batch_size,
+                                            iterations=iterations,
+                                            sample_proportion=sample_proportion,
+                                            parameter_bounds_BO=parameter_bounds_BO,
+                                            random_starts=random_starts)
         else:
-            raise ValueError("Method not understood. Please use either 'autograd' or 'finite difference'")
+            raise ValueError("Method not understood. Please use either 'autograd', 'finite difference' or 'bayesian optimization'. Defaults to 'autograd'")
 
     def predict(self, X_test: torch.Tensor, N_I: int = False) -> torch.Tensor:
         """Predict method for trained Kernel Flow model

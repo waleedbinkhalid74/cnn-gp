@@ -71,7 +71,7 @@ def test_pi_matrix():
 def test_rho():
     """Test if calculation of rho is correct compared to Darcy's implementation
     """
-    model = Sequential(
+    model = Sequential(2.0, 1.0,
                 Conv2d(kernel_size=3, padding=0),
                 ReLU(),
                 )
@@ -122,7 +122,7 @@ def test_blocked_kernel_eval_square_result():
     X = torch.rand((100, 1, 28, 28))
     Y = torch.rand((100, 10))
 
-    model_untrained = Sequential(
+    model_untrained = Sequential(2.0, 1.0,
         Conv2d(kernel_size=3),
         ReLU(),
         Conv2d(kernel_size=3, stride=2),
@@ -148,7 +148,7 @@ def test_blocked_kernel_eval_rec_result():
     X = torch.rand((5000, 1, 28, 28))
     Y = torch.rand((5000, 10))
 
-    model_untrained = Sequential(
+    model_untrained = Sequential(3.0, 5.0,
         Conv2d(kernel_size=3),
         ReLU(),
         Conv2d(kernel_size=3, stride=2),
