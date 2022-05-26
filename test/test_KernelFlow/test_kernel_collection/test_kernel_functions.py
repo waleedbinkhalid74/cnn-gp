@@ -2,8 +2,8 @@ from torchvision import datasets, transforms
 import torch
 from KernelFlow.Frechet.kernel_functions import kernel_RBF
 import numpy as np
-from KernelFlow import KernelFlowsCNNGP
-from KernelFlow.KernelFlowCNNGP.kernel_collection import RBF_Kernel
+from KernelFlow import KernelFlowsTorch
+from KernelFlow.Torch.kernel_collection import RBF_Kernel
 import torch.nn.functional as F
 
 def test_rbf():

@@ -3,6 +3,7 @@ numpy>=1.10.0
 torch>=1.1.0
 torchvision>=0.2.0
 tqdm>=4.32
+absl-py
 
 # For experiments
 h5py>=2.9.0

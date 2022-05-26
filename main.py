@@ -3,7 +3,7 @@ import math
 from cnn_gp import Sequential, Conv2d, ReLU, resnet_block
 import torch
 import numpy as np
-from KernelFlow import KernelFlowsCNNGP
+from KernelFlow import KernelFlowsTorch
 from KernelFlow import batch_creation
 import torch.nn.functional as F
 from torchvision import datasets, transforms
@@ -115,7 +115,7 @@ if __name__ == "__main__":
 
     # K_xx = model(X_train[0:10], X_train[0:10])#, X_train[0:10])
 
-    pi_mat = KernelFlowsCNNGP.pi_matrix(sample_indices=np.array([1,3,5,7,9]), dimension=(5,10))
+    pi_mat = KernelFlowsTorch.pi_matrix(sample_indices=np.array([1,3,5,7,9]), dimension=(5,10))
     pi_mat = pi_mat.to(device)
     rho_val = rho(X_train[:10], Y_train[:10].to(torch.float32), Y_sample=Y_train[np.array([1,3,5,7,9])].to(torch.float32), pi_matrix=pi_mat, kernel=model)
     print(rho_val)

@@ -1,6 +1,6 @@
 from cnn_gp import Sequential, Conv2d, ReLU, resnet_block
 import torch
-from KernelFlow import KernelFlowsCNNGP
+from KernelFlow import KernelFlowsTorch
 import numpy as np
 from KernelFlow import batch_creation
 import pytest
@@ -12,7 +12,7 @@ def test_batch_sample_creation():
     X = torch.rand((100, 1, 2,2))
     batch_size = 50
     sample_proportion = 0.5
-    samples, batches = KernelFlowsCNNGP.batch_creation(dataset_size=100,
+    samples, batches = KernelFlowsTorch.batch_creation(dataset_size=100,
                                                        batch_size=batch_size,
                                                        sample_proportion=sample_proportion)
 
@@ -39,17 +39,17 @@ def test_batch_creation_error_handling():
     """Check if Exceptions are caught
     """
     with pytest.raises(Exception):
-        samples, batches = KernelFlowsCNNGP.batch_creation(dataset_size=10,
+        samples, batches = KernelFlowsTorch.batch_creation(dataset_size=10,
                                                         batch_size=12,
                                                         sample_proportion=0.5)
 
     with pytest.raises(Exception):
-        samples, batches = KernelFlowsCNNGP.batch_creation(dataset_size=10,
+        samples, batches = KernelFlowsTorch.batch_creation(dataset_size=10,
                                                         batch_size=3,
                                                         sample_proportion=1.1)
 
     with pytest.raises(Exception):
-        samples, batches = KernelFlowsCNNGP.batch_creation(dataset_size=10,
+        samples, batches = KernelFlowsTorch.batch_creation(dataset_size=10,
                                                         batch_size=3,
                                                         sample_proportion=-0.5)
 
@@ -63,7 +63,7 @@ def test_pi_matrix():
                                    [0,0,0,0,0,0,0,1,0,0],
                                    [0,0,0,0,0,0,0,0,1,0],
                                    [0,0,0,0,0,0,0,0,0,1]])
-    pi_matrix = KernelFlowsCNNGP.pi_matrix(sample_indices=sample_indices,dimension=(N_c, N_f))
+    pi_matrix = KernelFlowsTorch.pi_matrix(sample_indices=sample_indices,dimension=(N_c, N_f))
     print(pi_matrix_compare)
     print(pi_matrix)
     assert torch.equal(pi_matrix, pi_matrix_compare)
@@ -75,7 +75,7 @@ def test_rho():
                 Conv2d(kernel_size=3, padding=0),
                 ReLU(),
                 )
-    K = KernelFlowsCNNGP(cnn_gp_kernel=model)
+    K = KernelFlowsTorch(cnn_gp_kernel=model)
     X = torch.ones((10, 1, 3,3), dtype=torch.float32)
     for i in range(X.shape[0]):
         X[i] = X[i] * i
@@ -95,7 +95,7 @@ def test_rho():
     Y_batch = Y[batches]
     Y_sample = Y[samples]
 
-    pi_matrix = KernelFlowsCNNGP.pi_matrix(sample_indices=samples, dimension=(N_c, N_f))
+    pi_matrix = KernelFlowsTorch.pi_matrix(sample_indices=samples, dimension=(N_c, N_f))
     rho = K.rho(X_batch=X_batch, Y_batch=Y_batch, Y_sample=Y_sample, pi_matrix=pi_matrix)
 
     ##### TEST COMPARISION #####
@@ -135,7 +135,7 @@ def test_blocked_kernel_eval_square_result():
         k_full = model_untrained(X, X).detach().numpy()
 
         # Blockwise Kernel
-        k_blocked = KernelFlowsCNNGP._block_kernel_eval(X=X,
+        k_blocked = KernelFlowsTorch._block_kernel_eval(X=X,
                                                         Y=X,
                                                         blocksize=25,
                                                         kernel=model_untrained).numpy()
@@ -162,7 +162,7 @@ def test_blocked_kernel_eval_rec_result():
         k_full = model_untrained(X[:125], X[:125]).detach().numpy()
 
         # Blockwise Kernel
-        k_blocked = KernelFlowsCNNGP._block_kernel_eval(X=X[:125],
+        k_blocked = KernelFlowsTorch._block_kernel_eval(X=X[:125],
                                                         Y=X[:125],
                                                         blocksize=50,
                                                         kernel=model_untrained).numpy()
@@ -172,7 +172,7 @@ def test_blocked_kernel_eval_rec_result():
         k_full = model_untrained(X[:120], X[:125]).detach().numpy()
 
         # Blockwise Kernel
-        k_blocked = KernelFlowsCNNGP._block_kernel_eval(X=X[:120],
+        k_blocked = KernelFlowsTorch._block_kernel_eval(X=X[:120],
                                                         Y=X[:125],
                                                         blocksize=50,
                                                         kernel=model_untrained).numpy()
@@ -183,7 +183,7 @@ def test_blocked_kernel_eval_rec_result():
         k_full = model_untrained(X[:116], X[:110]).detach().numpy()
 
         # Blockwise Kernel
-        k_blocked = KernelFlowsCNNGP._block_kernel_eval(X=X[:116],
+        k_blocked = KernelFlowsTorch._block_kernel_eval(X=X[:116],
                                                         Y=X[:110],
                                                         blocksize=50,
                                                         kernel=model_untrained).numpy()
@@ -194,7 +194,7 @@ def test_blocked_kernel_eval_rec_result():
         k_full = model_untrained(X[:125], X[:125]).detach().numpy()
 
         # Blockwise Kernel
-        k_blocked = KernelFlowsCNNGP._block_kernel_eval(X=X[:125],
+        k_blocked = KernelFlowsTorch._block_kernel_eval(X=X[:125],
                                                         Y=X[:125],
                                                         blocksize=100,
                                                         kernel=model_untrained).numpy()
@@ -205,7 +205,7 @@ def test_blocked_kernel_eval_rec_result():
         k_full = model_untrained(X[:1000], X[:100]).detach().numpy()
 
         # Blockwise Kernel
-        k_blocked = KernelFlowsCNNGP._block_kernel_eval(X=X[:1000],
+        k_blocked = KernelFlowsTorch._block_kernel_eval(X=X[:1000],
                                                         Y=X[:100],
                                                         blocksize=100,
                                                         kernel=model_untrained).numpy()

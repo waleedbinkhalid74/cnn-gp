@@ -1,5 +1,5 @@
 import sys
-from KernelFlow import KernelFlowsCNNGP
+from KernelFlow import KernelFlowsTorch
 from torchvision import datasets, transforms
 import torch
 import torch.nn.functional as F
@@ -18,18 +18,18 @@ def execute(model):
     data_string += 'initial_parameters: ' + str(model.var_bias) + ', ' +  str(model.var_weight) + '\n'    
     rand_acc = []
     for N_i in tqdm(N_i_arr):
-        Y_predictions, k_mat, t_mat = KernelFlowsCNNGP.kernel_regression(X_test=X_test, X_train=X_train[:N_i], Y_train=Y_train[:N_i], kernel=model, regularization_lambda=0.0001, blocksize=250, device=device)
+        Y_predictions, k_mat, t_mat = KernelFlowsTorch.kernel_regression(X_test=X_test, X_train=X_train[:N_i], Y_train=Y_train[:N_i], kernel=model, regularization_lambda=0.0001, blocksize=250, device=device)
         Y_predictions_labels = np.argmax(Y_predictions.cpu(), axis=1)
         rand_acc.append(accuracy_score(Y_predictions_labels, Y_test.cpu().numpy()) * 100)
     torch.cuda.empty_cache()
-    KF = KernelFlowsCNNGP(cnn_gp_kernel=model, device=device)
+    KF = KernelFlowsTorch(cnn_gp_kernel=model, device=device)
     KF._fit_finite_difference(X=X_train, Y=Y_train, iterations=1000, batch_size=600, sample_proportion = 0.5)
     #KF = KernelFlowsCNNGP(model, lr=0.1, device=device)
     #KF.fit(X_train, Y_train, 1000, 600, 0.5, method='finite difference')
 
     trained_acc = []
     for N_i in tqdm(N_i_arr):
-        Y_predictions, k_mat, t_mat = KernelFlowsCNNGP.kernel_regression(X_test=X_test, X_train=X_train[:N_i], Y_train=Y_train[:N_i], kernel=model, regularization_lambda=0.0001, blocksize=250, device=device)
+        Y_predictions, k_mat, t_mat = KernelFlowsTorch.kernel_regression(X_test=X_test, X_train=X_train[:N_i], Y_train=Y_train[:N_i], kernel=model, regularization_lambda=0.0001, blocksize=250, device=device)
         Y_predictions_labels = np.argmax(Y_predictions.cpu(), axis=1)
         trained_acc.append(accuracy_score(Y_predictions_labels, Y_test.cpu().numpy()) * 100)
 
