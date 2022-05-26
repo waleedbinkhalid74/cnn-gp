@@ -1,4 +1,3 @@
-import itertools
 import os
 from typing import Tuple
 import warnings
@@ -11,7 +10,7 @@ import numpy as np
 from utils import tqdm_skopt
 from functools import partial
 from skopt import gp_minimize
-
+from tqdm import tqdm
 
 ACCEPTED_OPTIMIZERS = ['SGD', 'ADAM']
 
@@ -347,7 +346,6 @@ class KernelFlowsTorch():
                                             blocksize=self.block_size, worker_rank=0, n_workers=1, device=self.device)
         # theta = self.cnn_gp_kernel(X_batch, X_batch)
         theta = theta.cpu()
-        pi_matrix = pi_matrix.cpu()
 
         # Calculate sample_matrix = pi_mat*theta*pi_mat^T
         sample_matrix = torch.matmul(pi_matrix, torch.matmul(theta, torch.transpose(pi_matrix, 0, 1)))
@@ -423,7 +421,6 @@ class KernelFlowsTorch():
 
             # Calculate pi matrix
             pi_matrix = KernelFlowsTorch.pi_matrix(sample_indices=sample_indices, dimension=(N_c, N_f))
-            pi_matrix = pi_matrix.to(self.device)
             optimizer.zero_grad()
 
             # Calculate rho
@@ -507,7 +504,6 @@ class KernelFlowsTorch():
 
             # Calculate pi matrix
             pi_matrix = KernelFlowsTorch.pi_matrix(sample_indices=sample_indices, dimension=(N_c, N_f))
-            pi_matrix = pi_matrix.to(self.device)
             optimizer.zero_grad()
 
             # NOTE: Number of forward passes = No_parameters + 1 per iteration!

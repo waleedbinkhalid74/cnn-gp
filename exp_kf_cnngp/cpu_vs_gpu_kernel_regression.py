@@ -47,24 +47,22 @@ def main(_):
     for N_i in tqdm(N_i_arr):
         X_train_Ni = X_train[:N_i]
         Y_train_Ni = Y_train[:N_i]
-        X_test_Ni = X_test[:N_i]
-        Y_test_Ni = Y_test[:N_i]
 
         with torch.no_grad():
             k_xx = get_kernel(X_train_Ni, X_train_Ni, cnngp=cnn_gp)
-            k_x_prime_x = get_kernel(X_test_Ni, X_train_Ni, cnngp=cnn_gp)
+            k_x_prime_x = get_kernel(X_test, X_train_Ni, cnngp=cnn_gp)
 
         # CPU evaluation
         k_inv_Y_cpu = torch.linalg.lstsq(k_xx.cpu(), Y_train_Ni.cpu(), rcond=1e-8).solution
         prediction_cpu = torch.matmul(k_x_prime_x.cpu(), k_inv_Y_cpu)
         prediction_labels_cpu = get_label_from_probability(prediction_cpu)
-        cpu_acc.append(accuracy_score(prediction_labels_cpu, Y_test_Ni.cpu().numpy()) * 100)
+        cpu_acc.append(accuracy_score(prediction_labels_cpu, Y_test.cpu().numpy()) * 100)
 
         # GPU evaluation
         k_inv_Y_gpu = torch.linalg.lstsq(k_xx, Y_train_Ni, rcond=1e-8).solution
         prediction_gpu = torch.matmul(k_x_prime_x, k_inv_Y_gpu)
         prediction_labels_gpu = get_label_from_probability(prediction_gpu)
-        gpu_acc.append(accuracy_score(prediction_labels_gpu, Y_test_Ni.cpu().numpy()) * 100)
+        gpu_acc.append(accuracy_score(prediction_labels_gpu, Y_test.cpu().numpy()) * 100)
 
     fig, ax = plt.subplots(1,1)
     ax.plot(N_i_arr, cpu_acc, '-o', label="Kernel Regression on CPU")
@@ -73,7 +71,7 @@ def main(_):
     ax.set_ylabel("Accuracy")
     ax.set_ylim((0,100))
     plt.legend()
-    fig.savefig('./figs/cpu_vs_gpu_accuracy.png')
+    fig.savefig('./figs/cpu_vs_gpu_kernel_regression_accuracy.png')
     plt.show()
 
 if __name__ == '__main__':
