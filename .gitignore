@@ -10,6 +10,7 @@ matlab/
 dumpster/
 !CNN_GP_Memory.ipynb
 models/
+debugger.py
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
