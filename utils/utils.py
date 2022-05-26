@@ -12,6 +12,10 @@ class tqdm_skopt(object):
     def __call__(self, res=1):
         self._bar.update(1)
 
+def get_dataset(dataset:str, train_size: int, val_size: int, shuffle: bool = True, device: str = 'cpu')-> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    if dataset == 'mnist':
+        return get_MNIST_dataset(train_size=train_size, val_size=val_size, shuffle=shuffle, device=device)
+
 def get_MNIST_dataset(train_size: int, val_size: int, shuffle: bool = True, device: str = 'cpu') -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
     """Returns the MNIST dataset of images and labels with a training set and a validation set
 

@@ -235,8 +235,7 @@ class KernelFlowsTorch():
         # prediction = torch.matmul(t_matrix, torch.matmul(torch.linalg.inv(k_matrix), Y_train))
         k_inv_Y = torch.linalg.lstsq(k_matrix.cpu(), Y_train.cpu(), rcond=1e-8).solution
         prediction = torch.matmul(t_matrix.cpu(), k_inv_Y)
-        return prediction, k_matrix, t_matrix
-
+        return prediction
 
     def sample_size_linear(self, iterations, range_tuple):
         return np.linspace(range_tuple[0], range_tuple[1], num = iterations)[::-1]
@@ -262,8 +261,8 @@ class KernelFlowsTorch():
             pi[i][sample_indices[i]] = 1
 
         return pi
-        
-    def _rho_bo(self, batch_size, sample_proportion, params) -> torch.Tensor:
+
+    def _rho_bo(self, batch_size, sample_proportion, params, store_rho: bool = True) -> torch.Tensor:
 
         sample_indices, batch_indices = KernelFlowsTorch.batch_creation(dataset_size= self._X.shape[0],
                                                                         batch_size= batch_size,
@@ -285,7 +284,6 @@ class KernelFlowsTorch():
         # rho = 1 - trace(Y_s^T * (pi_mat * K(X_b, X_b)^-1 pi_mat^T) * Y_s) / trace(Y_b^T K(X_b, X_b)^-1 Y_b)
 
         # Set the parameters of the kernel
-        no_params = len(list(self.cnn_gp_kernel.parameters()))
         for i, param in enumerate(self.cnn_gp_kernel.parameters()):
             param.data = torch.tensor([params[i % 2]]).to(self.device)
 
@@ -318,8 +316,21 @@ class KernelFlowsTorch():
             print("Warning, rho < 0. Setting to 1.")
             rho.data = torch.tensor(1, device=self.device)
 
+        # Check if the reduction in value of rho is real or due to instability
+        # If a new minimum is found, evaluate rho again with a different batch and sample 
+        # and see if the value of rho is still less than the lowest value
+        if store_rho:        
+            eps = 1e-1
+            min_rho = np.min(self.rho_values) if len(self.rho_values) > 0.0 else 0.0
+            if rho < min_rho:
+                rho_counter_check = self._rho_bo(batch_size=batch_size, sample_proportion=sample_proportion, params=params, store_rho=False)
+                if rho_counter_check > rho + eps:
+                    print("Value of rho was not stable, setting to 1.")
+                    rho.data = torch.tensor(1, device=self.device)
+
+            self.rho_values.append(rho.cpu().numpy().item())
+
         # skopt Bayesian optimization requires a scalar output from the blackbox function
-        self.rho_values.append(rho.cpu().numpy().item())
         return rho.cpu().numpy().item()
 
 
@@ -568,6 +579,7 @@ class KernelFlowsTorch():
             parameter_bounds = list(zip(lower_bounds, upper_bounds))
         else:
             parameter_bounds = parameter_bounds_BO
+
         # Applied gaussian process based bayesian optimization
         bo_result = gp_minimize(rho_objective,  # the function to minimize
                         parameter_bounds,   # the bounds on each parameter
