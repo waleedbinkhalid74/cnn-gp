@@ -21,6 +21,7 @@ DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 def main(_):
     X_train, Y_train, X_test, Y_test = get_dataset(dataset=FLAGS.dataset, train_size=50000, val_size=1000, device=DEVICE)
     cnn_gp = kernel_flow_configs.get_CNNGP(model_name = FLAGS.CNNGP_model, device=DEVICE)
+
     N_i_arr = np.arange(100, 1600, 100)
     rand_acc = []
 
@@ -59,9 +60,24 @@ def main(_):
     fig, ax = plt.subplots(1,1)
     ax.plot(N_i_arr, rand_acc, '-*', label='CNNGP with randomly initialized $\sigma_w$ and $\sigma_b$')
     ax.plot(N_i_arr, bo_acc, '-o', label='Bayesian Optimization Trained CNNGP')
+
+    # If experiment is done with covnet then the covnet model in Alonso et al is also compared
+    if FLAGS.CNNGP_model == 'covnet':
+        covnet_alonso_etal = kernel_flow_configs.get_CNNGP('alonso_etal_covnet', device=DEVICE)
+        covnet_alonso_etal_acc = []
+        for N_i in tqdm(N_i_arr):
+            Y_predictions_trained = KernelFlowsTorch.kernel_regression(X_test=X_test, X_train=X_train[:N_i], 
+                                                                                    Y_train=Y_train[:N_i], kernel=covnet_alonso_etal, 
+                                                                                    regularization_lambda=0.0001, blocksize=250,
+                                                                                    device=DEVICE)
+            Y_predictions_trained_labels = np.argmax(Y_predictions_trained.cpu(), axis=1)
+            covnet_alonso_etal_acc.append(accuracy_score(Y_predictions_trained_labels, Y_test.cpu().numpy()) * 100)
+            ax.plot(N_i_arr, covnet_alonso_etal_acc, '-v', label='Covnet with parameters from Garriga-Alonso')
+
     ax.set_xlabel("Number of input samples used for Kernel Regression $N_I$")
     ax.set_ylabel("Accuracy")
     ax.set_ylim((0,100))
+    plt.yticks(np.arange(0, 101, 5.0))
     plt.legend()
     plt.show()
     fig.savefig('./figs/bayesian_optimization_accuracy_' + FLAGS.CNNGP_model + "_" + FLAGS.dataset + '.png')

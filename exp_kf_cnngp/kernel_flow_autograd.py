@@ -22,7 +22,8 @@ def main(_):
     N_i_arr = np.arange(100, 1600, 100)
     rand_acc = []
 
-    print(f"""Initial Parameters: var_weight = {cnn_gp.var_weight}, var_bias = {cnn_gp.var_bias}""")
+    print(f"""Initial Parameters: var_weight = {cnn_gp.var_weight}, \n var_bias = {cnn_gp.var_bias}""")
+
 
 
     # Getting accuracy for randomly initialized CNNGP
@@ -35,6 +36,10 @@ def main(_):
         Y_predictions_rand_cnngp_labels = get_label_from_probability(Y_predictions_rand_cnngp)
         rand_acc.append(accuracy_score(Y_predictions_rand_cnngp_labels, Y_test.cpu().numpy()) * 100)
 
+    plt.plot(rand_acc)
+    plt.ylim((0,100))
+    plt.show()
+
     KF_autograd = KernelFlowsTorch(cnn_gp, device=DEVICE, regularization_lambda=1e-4)
     KF_autograd.fit(X_train, Y_train, iterations=1000, batch_size=600,
                             sample_proportion=0.5, method='autograd')
@@ -43,8 +48,14 @@ def main(_):
     ax.plot(KF_autograd.rho_values)
     ax.set_xlabel("Iterations")
     ax.set_ylabel("$\\rho$")
+    m, b = np.polyfit(np.arange(0, len(KF_autograd.rho_values)), KF_autograd.rho_values, 1)
+    ax.plot(np.arange(0, len(KF_autograd.rho_values)), m*np.arange(0, len(KF_autograd.rho_values)) + b, label=f"""Best fit line: y = {m:.2f}x + {b:.2f}""")
     ax.set_ylim((0, 1))
+    plt.legend()
+    plt.show()
     fig.savefig('./figs/autograd_rho_' + FLAGS.CNNGP_model + "_" + FLAGS.dataset + '.png')
+
+    print(f"""Final Parameters: var_weight = {cnn_gp.var_weight}, var_bias = {cnn_gp.var_bias}""")
 
     trained_acc = []
     for N_i in tqdm(N_i_arr):
@@ -55,7 +66,7 @@ def main(_):
         Y_predictions_trained_labels = np.argmax(Y_predictions_trained.cpu(), axis=1)
         trained_acc.append(accuracy_score(Y_predictions_trained_labels, Y_test.cpu().numpy()) * 100)
 
-    print(f"""Final Parameters: var_weight = {cnn_gp.var_weight}, var_bias = {cnn_gp.var_bias}""")
+
 
     fig, ax = plt.subplots(1,1)
     ax.plot(N_i_arr, rand_acc, '-*', label='CNNGP with randomly initialized $\sigma_w$ and $\sigma_b$')
@@ -63,6 +74,7 @@ def main(_):
     ax.set_xlabel("Number of input samples used for Kernel Regression $N_I$")
     ax.set_ylabel("Accuracy")
     ax.set_ylim((0,100))
+    plt.yticks(np.arange(0, 101, 5.0))
     plt.legend()
     plt.show()
     fig.savefig('./figs/autograd_accuracy_' + FLAGS.CNNGP_model + "_" + FLAGS.dataset + '.png')
