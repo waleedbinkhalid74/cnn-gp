@@ -34,11 +34,15 @@ def main(_):
 
         Y_predictions_rand_cnngp_labels = get_label_from_probability(Y_predictions_rand_cnngp)
         rand_acc.append(accuracy_score(Y_predictions_rand_cnngp_labels, Y_test.cpu().numpy()) * 100)
-        
+
+    plt.plot(rand_acc)
+    plt.ylim((0,100))
+    plt.show()
+      
     # Training with Bayesian Optimization
-    parameter_bounds = [(1e-3, 100.0), (0.0, 100.0)]
+    parameter_bounds = [(1e-3, 200.0), (0.0, 200.0)]
     KF_BO = KernelFlowsTorch(cnn_gp, device=DEVICE, regularization_lambda=1e-4)
-    res = KF_BO.fit(X_train, Y_train, iterations=50, batch_size=1200, 
+    res = KF_BO.fit(X_train, Y_train, iterations=30, batch_size=1200, 
                     sample_proportion=0.5, parameter_bounds_BO=parameter_bounds, 
                     random_starts=15, method='bayesian optimization')
 
@@ -58,7 +62,11 @@ def main(_):
         bo_acc.append(accuracy_score(Y_predictions_trained_labels, Y_test.cpu().numpy()) * 100)
 
     fig, ax = plt.subplots(1,1)
-    ax.plot(N_i_arr, rand_acc, '-*', label='CNNGP with randomly initialized $\sigma_w$ and $\sigma_b$')
+    if FLAGS.CNNGP_model == 'alonso_etal_covnet':
+        ax.plot(N_i_arr, rand_acc, '-*', label='Covnet with parameters from Garriga-Alonso')
+    else:
+        ax.plot(N_i_arr, rand_acc, '-*', label='CNNGP with randomly initialized $\sigma_w$ and $\sigma_b$')
+        
     ax.plot(N_i_arr, bo_acc, '-o', label='Bayesian Optimization Trained CNNGP')
 
     # If experiment is done with covnet then the covnet model in Alonso et al is also compared

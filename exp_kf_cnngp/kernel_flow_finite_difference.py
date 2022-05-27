@@ -65,7 +65,11 @@ def main(_):
     print(f"""Final Parameters: var_weight = {cnn_gp.var_weight}, var_bias = {cnn_gp.var_bias}""")
 
     fig, ax = plt.subplots(1,1)
-    ax.plot(N_i_arr, rand_acc, '-*', label='CNNGP with randomly initialized $\sigma_w$ and $\sigma_b$')
+    if FLAGS.CNNGP_model == 'alonso_etal_covnet':
+        ax.plot(N_i_arr, rand_acc, '-*', label='Covnet with parameters from Garriga-Alonso')
+    else:
+        ax.plot(N_i_arr, rand_acc, '-*', label='CNNGP with randomly initialized $\sigma_w$ and $\sigma_b$')
+
     ax.plot(N_i_arr, trained_acc, '-o', label='Finite Difference Trained CNNGP')
 
     # If experiment is done with covnet then the covnet model in Alonso et al is also compared
