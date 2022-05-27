@@ -24,11 +24,26 @@ def get_CNNGP(model_name: str = 'covnet', device: str = 'cpu')-> NNGPKernel:
                 Conv2d(kernel_size=28, padding=0),
                 )
     elif model_name == 'simple':
+        print("Selected simple 3 layer network")
         cnn_gp = Sequential(var_weight, var_bias,
                 Conv2d(kernel_size=3),
                 ReLU(),
                 Conv2d(kernel_size=3, stride=2),
                 ReLU(),
                 Conv2d(kernel_size=14, padding=0),  # equivalent to a dense layer
+                )
+    elif model_name == "alonso_etal_covnet":
+        print("Selected alonso et al covnet")
+        var_bias = 7.86
+        var_weight = 2.79
+        layers = []
+        for _ in range(7):  # n_layers
+            layers += [
+                Conv2d(kernel_size=7, padding="same"),
+                ReLU(),
+            ]
+            cnn_gp = Sequential(var_weight, var_bias,
+                *layers,
+                Conv2d(kernel_size=28, padding=0),
                 )
     return cnn_gp.to(device)
