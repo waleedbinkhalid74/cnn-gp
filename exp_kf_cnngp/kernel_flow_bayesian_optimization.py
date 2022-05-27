@@ -72,7 +72,7 @@ def main(_):
                                                                                     device=DEVICE)
             Y_predictions_trained_labels = np.argmax(Y_predictions_trained.cpu(), axis=1)
             covnet_alonso_etal_acc.append(accuracy_score(Y_predictions_trained_labels, Y_test.cpu().numpy()) * 100)
-            ax.plot(N_i_arr, covnet_alonso_etal_acc, '-v', label='Covnet with parameters from Garriga-Alonso')
+        ax.plot(N_i_arr, covnet_alonso_etal_acc, '-v', label='Covnet with parameters from Garriga-Alonso')
 
     ax.set_xlabel("Number of input samples used for Kernel Regression $N_I$")
     ax.set_ylabel("Accuracy")
