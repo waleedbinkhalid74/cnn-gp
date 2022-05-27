@@ -48,7 +48,7 @@ def main(_):
     ax.set_xlabel("Iterations")
     ax.set_ylabel("$\\rho$")
     m, b = np.polyfit(np.arange(0, len(KF_finite_diff.rho_values)), KF_finite_diff.rho_values, 1)
-    ax.plot(np.arange(0, len(KF_finite_diff.rho_values)), m*np.arange(0, len(KF_finite_diff.rho_values)) + b, label=f"""Best fit line: y = {m:.2f}x + {b:.2f}""")
+    ax.plot(np.arange(0, len(KF_finite_diff.rho_values)), m*np.arange(0, len(KF_finite_diff.rho_values)) + b, label=f"""Best fit line: y = {m:.6f}x + {b:.2f}""")
     ax.set_ylim((0, 1))
     plt.legend()
     fig.savefig('./figs/finite_diff_rho_' + FLAGS.CNNGP_model + "_" + FLAGS.dataset + '.png')
