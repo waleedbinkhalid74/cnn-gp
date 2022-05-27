@@ -19,7 +19,7 @@ DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 def main(_):
     X_train, Y_train, X_test, Y_test = get_dataset(dataset=FLAGS.dataset, train_size=50000, val_size=1000, device=DEVICE)
     cnn_gp = kernel_flow_configs.get_CNNGP(model_name = FLAGS.CNNGP_model, device=DEVICE)
-    N_i_arr = np.arange(100, 200, 100)
+    N_i_arr = np.arange(100, 1600, 100)
     rand_acc = []
 
     print(f"""Initial Parameters: var_weight = {cnn_gp.var_weight}, var_bias = {cnn_gp.var_bias}""")
@@ -40,7 +40,7 @@ def main(_):
     plt.show()
 
     KF_finite_diff = KernelFlowsTorch(cnn_gp, device=DEVICE, regularization_lambda=1e-4)
-    KF_finite_diff.fit(X_train, Y_train, iterations=2, batch_size=600,
+    KF_finite_diff.fit(X_train, Y_train, iterations=500, batch_size=600,
                             sample_proportion=0.5, method='finite difference')
 
     fig, ax = plt.subplots(1,1)
