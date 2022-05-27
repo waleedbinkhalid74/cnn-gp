@@ -36,7 +36,7 @@ def main(_):
         rand_acc.append(accuracy_score(Y_predictions_rand_cnngp_labels, Y_test.cpu().numpy()) * 100)
 
     KF_autograd = KernelFlowsTorch(cnn_gp, device=DEVICE, regularization_lambda=1e-4)
-    KF_autograd.fit(X_train, Y_train, iterations=500, batch_size=600,
+    KF_autograd.fit(X_train, Y_train, iterations=1000, batch_size=600,
                             sample_proportion=0.5, method='autograd')
 
     fig, ax = plt.subplots(1,1)
