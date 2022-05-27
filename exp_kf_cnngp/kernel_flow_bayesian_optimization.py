@@ -11,7 +11,6 @@ from skopt.plots import plot_convergence
 sys.path.insert(0, os.getcwd() + '/.')
 
 from utils import get_dataset, get_label_from_probability
-from cnn_gp import NNGPKernel
 from KernelFlow import KernelFlowsTorch
 from configs import kernel_flow_configs
 
@@ -46,7 +45,7 @@ def main(_):
     plot_convergence(res, ax=ax)
     ax.set_ylim((0,1))
     plt.show()
-    fig.savefig('./figs/bayesian_optimization_convergence' + FLAGS.dataset + '.png')
+    fig.savefig('./figs/bayesian_optimization_convergence_' + FLAGS.CNNGP_model + "_" + FLAGS.dataset + '.png')
 
     bo_acc = []
     for N_i in tqdm(N_i_arr):
@@ -65,7 +64,7 @@ def main(_):
     ax.set_ylim((0,100))
     plt.legend()
     plt.show()
-    fig.savefig('./figs/bayesian_optimization_accuracy' + FLAGS.dataset + '.png')
+    fig.savefig('./figs/bayesian_optimization_accuracy_' + FLAGS.CNNGP_model + "_" + FLAGS.dataset + '.png')
 
 if __name__ == '__main__':
     f = absl.app.flags

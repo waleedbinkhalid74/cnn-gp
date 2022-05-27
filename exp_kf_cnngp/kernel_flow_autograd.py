@@ -35,16 +35,16 @@ def main(_):
         Y_predictions_rand_cnngp_labels = get_label_from_probability(Y_predictions_rand_cnngp)
         rand_acc.append(accuracy_score(Y_predictions_rand_cnngp_labels, Y_test.cpu().numpy()) * 100)
 
-    KF_finite_diff = KernelFlowsTorch(cnn_gp, device=DEVICE, regularization_lambda=1e-4)
-    KF_finite_diff.fit(X_train, Y_train, iterations=500, batch_size=600,
-                            sample_proportion=0.5, method='finite difference')
+    KF_autograd = KernelFlowsTorch(cnn_gp, device=DEVICE, regularization_lambda=1e-4)
+    KF_autograd.fit(X_train, Y_train, iterations=500, batch_size=600,
+                            sample_proportion=0.5, method='autograd')
 
     fig, ax = plt.subplots(1,1)
-    ax.plot(KF_finite_diff.rho_values)
+    ax.plot(KF_autograd.rho_values)
     ax.set_xlabel("Iterations")
     ax.set_ylabel("$\\rho$")
     ax.set_ylim((0, 1))
-    fig.savefig('./figs/finite_diff_rho_' + FLAGS.CNNGP_model + "_" + FLAGS.dataset + '.png')
+    fig.savefig('./figs/autograd_rho_' + FLAGS.CNNGP_model + "_" + FLAGS.dataset + '.png')
 
     trained_acc = []
     for N_i in tqdm(N_i_arr):
@@ -59,17 +59,17 @@ def main(_):
 
     fig, ax = plt.subplots(1,1)
     ax.plot(N_i_arr, rand_acc, '-*', label='CNNGP with randomly initialized $\sigma_w$ and $\sigma_b$')
-    ax.plot(N_i_arr, trained_acc, '-o', label='Finite Difference Trained CNNGP')
+    ax.plot(N_i_arr, trained_acc, '-o', label='Autograd Trained CNNGP')
     ax.set_xlabel("Number of input samples used for Kernel Regression $N_I$")
     ax.set_ylabel("Accuracy")
     ax.set_ylim((0,100))
     plt.legend()
     plt.show()
-    fig.savefig('./figs/finite_difference_accuracy_' + FLAGS.CNNGP_model + "_" + FLAGS.dataset + '.png')
+    fig.savefig('./figs/autograd_accuracy_' + FLAGS.CNNGP_model + "_" + FLAGS.dataset + '.png')
 
 if __name__ == '__main__':
     f = absl.app.flags
-    f.DEFINE_string("CNNGP_model", "covnet",
+    f.DEFINE_string("CNNGP_model", "simple",
                     "which CNNGP model to test on")
     f.DEFINE_string("dataset", "mnist",
                 "which dataset to work with")
