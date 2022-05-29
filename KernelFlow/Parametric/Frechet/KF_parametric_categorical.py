@@ -9,8 +9,8 @@ Created on Wed Jun 10 15:07:58 2020
 import numpy as np
 import math
 
-from KernelFlow.Frechet.kernel_functions import kernels_dic
-from KernelFlow.Frechet.nabla_functions import nabla_dic
+from KernelFlow.Parametric.Frechet.kernel_functions import kernels_dic
+from KernelFlow.Parametric.Frechet.nabla_functions import nabla_dic
 
 #%%
 

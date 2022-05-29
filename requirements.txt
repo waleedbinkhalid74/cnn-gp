@@ -6,7 +6,7 @@ tqdm>=4.32
 absl-py
 scikit-optimize
 neural-tangents
-# jax jaxlib --upgrade
+git# jax jaxlib --upgrade
 
 # For experiments
 h5py>=2.9.0
