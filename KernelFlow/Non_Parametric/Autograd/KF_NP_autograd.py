@@ -11,9 +11,11 @@ from autograd import value_and_grad
 import math
 import random
 
-from kernel_functions_autograd import kernels_dic
+from tqdm import tqdm
 
-default_lambda = 1e-5
+from .kernel_functions_autograd import kernels_dic
+
+default_lambda = 0.000001
 
 
 #%%
@@ -28,7 +30,7 @@ def pi_matrix(sample_indices, dimension):
     return pi
 
 # The rho function
-def rho(parameters, matrix_data, Y_data, sample_indices,  kernel_keyword= "RBF", reg = 0.000001):
+def rho(parameters, matrix_data, Y_data, sample_indices,  kernel_keyword= "RBF", reg = 0.0000001):
     kernel = kernels_dic[kernel_keyword]    
     kernel_matrix = kernel(matrix_data, matrix_data, parameters)
     
@@ -263,9 +265,7 @@ class KernelFlowsNPAutograd():
         self.X = X
         data_set_ind = np.arange(X.shape[0])
         perturbation = np.zeros(X.shape)
-        for i in range(iterations):
-            if type(show_it) == int and i % show_it == 0:
-                print("Iteration ", i)
+        for i in tqdm(range(iterations)):
 
             # Create a batch and a sample
             sample_indices, batch_indices = batch_creation(X, batch_size)
