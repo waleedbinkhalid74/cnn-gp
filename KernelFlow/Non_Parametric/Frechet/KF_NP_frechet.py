@@ -210,10 +210,7 @@ class KernelFlowsNP():
         self.X = X
         data_set_ind = np.arange(X.shape[0])
         perturbation = np.zeros(X.shape)
-        for i in tqdm(range(iterations)):
-            if i % show_it == 0:
-                print("Iteration ", i)
-            
+        for i in tqdm(range(iterations)):            
             
             # Create a batch and a sample
             sample_indices, batch_indices = batch_creation(X, batch_size)

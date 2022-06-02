@@ -148,11 +148,13 @@ def kernel_regression(X_train, X_test, Y_train, param, kernel_keyword = "RBF", r
     t_matrix = kernel(X_test, X_train, param)
     
     # Regression coefficients in feature space
-    coeff = np.matmul(np.linalg.inv(k_matrix), Y_train)
+    # coeff = np.matmul(np.linalg.inv(k_matrix), Y_train)
+    coeff, _, _, _ = np.linalg.lstsq(k_matrix, Y_train, rcond=1e-6)
+
     
     prediction = np.matmul(t_matrix, coeff)
     
-    return prediction, coeff
+    return prediction, coeff#, k_matrix, t_matrix, Y_train
 
 def kernel_regression_coeff(X_train, Y_train, param, kernel_keyword = "RBF", reg = default_lambda):
     kernel = kernels_dic[kernel_keyword]
@@ -220,7 +222,7 @@ grad_dic = {"rho" : grad_rho, "mmd": grad_mmd}
     
 #%%
                 
-default_parameters = {"LR" : 0.1, "type_epsilon": "relative", 
+default_parameters = {"LR" : 0.01, "type_epsilon": "relative", 
                       "adjust_type" : False, "rate": 0.0, "LR_threshold" :[],
                       "reg" : default_lambda, "loss": "rho", "sampling": "default"}
 
