@@ -270,7 +270,7 @@ class KernelFlowsNP():
         self.test_history = []
         self.test_history.append(X_test)
         # First case: mini-batch was used, hence the regression coefficients have already been computed
-        for i in range(iterations):
+        for i in tqdm(range(iterations)):
             if i % show_it == 0:
                 print("Iterations: ", i)
                 

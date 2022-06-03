@@ -8,7 +8,6 @@ import jax
 class KernelFlowsNPJAX():
 
     def __init__(self, kernel, regularization_lambda: float = 0.00001):
-
         self.kernel = kernel
         self.regularization_lambda = regularization_lambda
         # Lists that keep track of the history of the algorithm
@@ -26,10 +25,12 @@ class KernelFlowsNPJAX():
         Args:
             data_size (int): size of data to sample from
             size (int): number of items to sample
+            key (_type_): JAX generated random key
 
         Returns:
             np.array: sampled indices
         """
+
         indices = np.arange(data_size)
         choices = random.choice(key, indices, [size], replace=False)
         # sample_indices = np.sort(np.random.choice(indices, size, replace= False))
@@ -37,7 +38,7 @@ class KernelFlowsNPJAX():
         return sample_indices
 
     @staticmethod
-    def batch_creation(dataset_size:int, batch_size: int, sample_proportion: float = 0.5) -> Tuple[jax.numpy.array, jax.numpy.array]:
+    def batch_creation(dataset_size:int, batch_size: int, sample_proportion: float = 0.5) -> Tuple[jax.numpy.ndarray, jax.numpy.ndarray]:
         """Creates a batch N_f and sample N_c from available data for kernel regression
 
         Args:
@@ -46,7 +47,7 @@ class KernelFlowsNPJAX():
             sample_proportion (float): N_c samples from entire batch where N_c < N_f
 
         Returns:
-            jax.numpy.array, jax.numpy.array):  sample and batch indices respectively
+            (jax.numpy.ndarray, jax.numpy.ndarray):  sample and batch indices respectively
         """
         # Error handling
         if batch_size > dataset_size:
@@ -76,7 +77,7 @@ class KernelFlowsNPJAX():
         return sample_indices, batch_indices
 
     @staticmethod
-    def pi_matrix(sample_indices: np.ndarray, dimension: Tuple) -> jax.numpy.array:
+    def pi_matrix(sample_indices: np.ndarray, dimension: Tuple) -> jax.numpy.ndarray:
         """Evaluates the pi matrix. pi matrix is the corresponding Nc x Nf sub-sampling
             matrix defined by pi_{i;j} = delta_{sample}(i);j. The matrix has one non-zero (one)
             entry in each row
@@ -86,7 +87,7 @@ class KernelFlowsNPJAX():
             dimension (Tuple): dimensionality of the pi matrix N_c x N_f
 
         Returns:
-            torch.Tensor: resulting pi matrix
+            jax.numpy.ndarray: resulting pi matrix
         """
         # pi matrix is a N_c by N_f (or sample size times batch size) matrix with binary entries.
         # The element of the matrix is 1 when
@@ -98,7 +99,18 @@ class KernelFlowsNPJAX():
 
         return pi
 
-    def rho(self, X, Y, sample_indices):
+    def rho(self, X: jax.numpy.ndarray, Y: jax.numpy.ndarray, sample_indices: jax.numpy.ndarray) -> float:
+        """Calculates the loss rho for a particular batch and sample selection from the dataset based on the priciple
+            that even if the dataset is halved, the accuracy remains stable
+
+        Args:
+            X (jax.numpy.ndarray): batch dataset
+            Y (jax.numpy.ndarray): targets of the batch dataset
+            sample_indices (jax.numpy.ndarray): sample selected from the batch dataset
+
+        Returns:
+            float: rho value for current dataset
+        """
         kernel_matrix = self.kernel(X, X, 'nngp')
         pi = KernelFlowsNPJAX.pi_matrix(sample_indices, (sample_indices.shape[0], X.shape[0]))   
         sample_matrix = np.matmul(pi, np.matmul(kernel_matrix, np.transpose(pi)))
@@ -114,8 +126,16 @@ class KernelFlowsNPJAX():
         rho_val = 1 - np.trace(top)/np.trace(bottom)
         return rho_val
 
-    def kernel_regression_coeff(self, X_train, Y_train):
+    def kernel_regression_coeff(self, X_train: jax.numpy.ndarray, Y_train: jax.numpy.ndarray) -> jax.numpy.ndarray:
+        """Calculates the kernel regression coefficient K(X_train,X_train)^-1 @ Y_train
 
+        Args:
+            X_train (jax.numpy.ndarray): Training dataset
+            Y_train (jax.numpy.ndarray): Training dataset targets
+
+        Returns:
+            jax.numpy.ndarray: Coefficients for kernel regression
+        """
         # The data matrix (theta in the original paper)
         k_matrix = self.kernel(X_train, X_train, 'nngp')
         k_matrix += self.regularization_lambda * np.identity(k_matrix.shape[0])
@@ -126,7 +146,18 @@ class KernelFlowsNPJAX():
         return coeff
 
     # Generate a prediction
-    def kernel_regression(self, X_train, X_test, Y_train):
+    def kernel_regression(self, X_train: jax.numpy.ndarray, X_test: jax.numpy.ndarray, Y_train: jax.numpy.ndarray) -> jax.numpy.ndarray:
+        """Performs kernel regression using K(X_test, X_train) @ K(X_train, X_train)^-1 @ Y_train
+
+        Args:
+            X_train (jax.numpy.ndarray): Training dataset
+            X_test (jax.numpy.ndarray): Testing dataset
+            Y_train (jax.numpy.ndarray): Training dataset targets
+
+        Returns:
+            jax.numpy.ndarray: Predicted Testing dataset targets
+        """
+
 
         # The data matrix (theta in the original paper)
         k_matrix = self.kernel(X_train, X_train, 'nngp')
@@ -145,7 +176,18 @@ class KernelFlowsNPJAX():
         
     # This function ccomputes epsilon (relative: max relative transaltion = rate, absolute: max translation = rate)
     @staticmethod
-    def compute_LR(rate, old_points, g_pert, type_epsilon = "relative"):
+    def compute_LR(rate: float, old_points: jax.numpy.ndarray, g_pert: jax.numpy.ndarray, type_epsilon: str = "relative") -> float:
+        """Calculates the epsilon based on which the perturbations are added to the training dataset
+
+        Args:
+            rate (float): Original learning rate
+            old_points (jax.numpy.ndarray): Batch Dataset points of the current iteration
+            g_pert (jax.numpy.ndarray): Amount of perturbation for Batch Dataset points
+            type_epsilon (str, optional): Strategy based on which the perturbation should be calculated. Defaults to "relative".
+
+        Returns:
+            float: Epsilon value to scale the perturbation
+        """
         if type_epsilon == "relative":
             norm_old = np.linalg.norm(old_points, axis = 1)
             norm_pert = np.linalg.norm(g_pert, axis = 1)
@@ -181,10 +223,26 @@ class KernelFlowsNPJAX():
     #             else:
     #                 return LR
                     
-    def fit(self, X, Y, iterations, batch_size = False, sample_proportion: float = 0.5, 
-            learning_rate = 0.1, type_epsilon = "relative", record_hist = True):
+    def fit(self, X: jax.numpy.ndarray, Y: jax.numpy.ndarray, iterations: int, batch_size: int = False, 
+            sample_proportion: float = 0.5, learning_rate: float = 0.01, type_epsilon: str = "relative", 
+            record_hist: bool = True) -> jax.numpy.ndarray:
+        """Fits by perturbing the trianing dataset using the Non-parametric Kernel Flow algorithm and a NNGP kernel
+
+        Args:
+            X (jax.numpy.ndarray): Training dataset
+            Y (jax.numpy.ndarray): Training dataset targets
+            iterations (int): Number of iterations of the non-parameteric kernel flow algorithm to apply
+            batch_size (int, optional): Batch size for the algorithm. Defaults to False.
+            sample_proportion (float, optional): Proportion of the batchsize to use in the sample dataset. Defaults to 0.5.
+            learning_rate (float, optional): Learning rate of the algorithm. Defaults to 0.01.
+            type_epsilon (str, optional): How to calculate the proportion in which to add perturbations to the dataset. Defaults to "relative".
+            record_hist (bool, optional): Flag if the history of the points should be recorded. Defaults to True.
+
+        Returns:
+            jax.numpy.ndarray: Perturbed points
+        """
         # Create a copy of the parameters (so the original parameters aren't modified)
-        self.X_train = np.copy(X)
+        # self.X_train = np.copy(X)
         self.Y_train = np.copy(Y)
         self.iteration = iterations
         self.points_hist.append(np.copy(X))
@@ -243,10 +301,21 @@ class KernelFlowsNPJAX():
             
             if record_hist == True:
                 self.points_hist.append(np.copy(X))
-            
+
+        self.X_train = np.copy(X)
         return X
 
-    def flow_transform(self, X_test, iterations, epsilon_choice = "combination"):
+    def flow_transform(self, X_test: jax.numpy.ndarray, iterations: int, epsilon_choice: str = "combination") -> jax.numpy.ndarray:
+        """Transforms the test dataset based on the perturbation history
+
+        Args:
+            X_test (jax.numpy.ndarray): Test dataset points
+            iterations (int): Number of iterations to run
+            epsilon_choice (str, optional): Choice of epsilon calculating strategy to scale perturbations. Defaults to "combination".
+
+        Returns:
+            jax.numpy.ndarray: Perturbed test dataset points
+        """
         # Keeping track of the perturbations
         self.test_history = []
         self.test_history.append(X_test)
@@ -281,7 +350,18 @@ class KernelFlowsNPJAX():
             self.test_history.append(X_test)
         return X_test
 
-    def predict(self, X_test, kernel_it = -1, epsilon_choice = "combination"):
+    def predict(self, X_test: jax.numpy.ndarray, kernel_it: int = -1, epsilon_choice:str = "combination") -> jax.numpy.ndarray:
+        """Perturbs the test points based on the training history and then performs kernel regression on those perturbed points using 
+            the already perturbed training dataset.
+
+        Args:
+            X_test (jax.numpy.ndarray): Test dataset
+            kernel_it (int, optional): Number of iterations to perform on the test dataset. Defaults to -1.
+            epsilon_choice (str, optional): Strategy to calculate the epsilon based on which the perturbations are scaled. Defaults to "combination".
+
+        Returns:
+            jax.numpy.ndarray: Predicted targets for the test dataset
+        """
         # Transforming using the flow
         if kernel_it > 0:
            flow_test = self.flow_transform(X_test, kernel_it, epsilon_choice = epsilon_choice)  
