@@ -12,9 +12,9 @@ from tqdm import tqdm
 from .kernel_functions import kernels_dic
 from .nabla_functions import nabla_dic
 
-default_lambda = 0.000001
-
 #%%
+
+default_lambda = 1e-5
 
 # The pi or selection matrix
 def pi_matrix(sample_indices, dimension):
@@ -192,7 +192,7 @@ class KernelFlowsNP():
         self.perturbation = []
     
     
-    def fit(self, X, Y, iterations, batch_size = False,learning_rate = 0.1, type_epsilon = "relative", show_it = 100, record_hist = True, reg = default_lambda):
+    def fit(self, X, Y, iterations, batch_size = False,learning_rate = 0.1, type_epsilon = "relative", show_it = 100, record_hist = True, reg = 0.000001):
         # Create a copy of the parameters (so the original parameters aren't modified)
         self.LR = learning_rate
         self.type_epsilon = type_epsilon
@@ -200,7 +200,6 @@ class KernelFlowsNP():
         self.Y_train = np.copy(Y)
         self.iteration = iterations
         self.points_hist.append(np.copy(X))
-        
         parameters = self.parameters
         
         if batch_size == False:
@@ -271,8 +270,8 @@ class KernelFlowsNP():
         self.test_history.append(X_test)
         # First case: mini-batch was used, hence the regression coefficients have already been computed
         for i in tqdm(range(iterations)):
-            if i % show_it == 0:
-                print("Iterations: ", i)
+            # if i % show_it == 0:
+            #     print("Iterations: ", i)
                 
             # Fetching the regression coefficients and the batch used
             coeff = self.coeff[i]
@@ -301,7 +300,8 @@ class KernelFlowsNP():
             self.test_history.append(X_test)
         return X_test
     
-    def predict(self, X_test, show_it = 1000, regu = default_lambda, kernel_it = -1, epsilon_choice = "combination"):
+    def predict(self, X_test, show_it = 1000, kernel_it = -1, epsilon_choice = "combination", regu = default_lambda):
+
 
         # Transforming using the flow
         if kernel_it > 0:
@@ -326,6 +326,7 @@ class KernelFlowsNP():
         return prediction
     
     def predict_train(self, regu = default_lambda):
+
         X_train = self.X
         Y_train = self.Y_train
         prediction, coeff = kernel_regression(X_train, X_train, Y_train, self.parameters, self.kernel_keyword, regu_lambda = regu) 
