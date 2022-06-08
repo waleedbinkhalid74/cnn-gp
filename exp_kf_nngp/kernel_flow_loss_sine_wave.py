@@ -6,14 +6,33 @@ from tqdm import tqdm
 import matplotlib.pyplot as plt
 import sys
 import os
-
+from neural_tangents import stax
+import time
 sys.path.insert(0, os.getcwd() + '/.')
 from KernelFlow import KernelFlowsNP
-from exp_kf_nngp.helpers import get_network, get_training_test_points
+from exp_kf_nngp.helpers import get_training_test_points
+
+def get_network(n=1):
+    layers = []
+    for _ in range(n):  # n_layers
+        layers += [
+        stax.Dense(32, W_std=1.5, b_std=0.05, parameterization='standard'), 
+        stax.Sigmoid_like()
+        ]
+
+    init_fn, apply_fn, kernel_fn = stax.serial(
+        *layers,
+        stax.Dense(1, W_std=1.5, b_std=0.05, parameterization='standard')
+    )
+
+    apply_fn = jit(apply_fn)
+    kernel_fn = jit(kernel_fn, static_argnums=(2,))
+
+    return init_fn, apply_fn, kernel_fn
 
 
-def get_loss_from_nn(training_dataset_size_arr):
-    key = random.PRNGKey(10)
+def get_loss_from_nn(training_dataset_size_arr, nn_depth_arr):
+    key = random.PRNGKey(int(time.time()))
     key, x_key, y_key = random.split(key, 3)
     
     depth_vs_test_loss = {}
@@ -27,13 +46,13 @@ def get_loss_from_nn(training_dataset_size_arr):
         train_xs, train_ys = train
         test_xs, test_ys = test
 
-        for n in tqdm(range(1, 6, 1)):
+        for n in tqdm(nn_depth_arr):
             network_depth = n
             init_fn, apply_fn, kernel_fn = get_network(network_depth)
             # key, net_key = random.split(key)
             _, params = init_fn(key, (-1, 1))
             learning_rate = 0.001
-            training_steps = 10000
+            training_steps = 20000
 
             opt_init, opt_update, get_params = optimizers.adam(learning_rate)
             opt_update = jit(opt_update)
@@ -74,19 +93,52 @@ def get_loss_from_kf_rbf(training_dataset_size_arr):
     return batch_size_vs_loss
 
 if __name__ == "__main__":
-    training_dataset_size_arr = np.arange(10, 60, 10)
-    depth_vs_test_loss_nn = get_loss_from_nn(training_dataset_size_arr)
+    training_dataset_size_arr = np.arange(5, 11, 1)
+    depth_arr = [1, 2, 3, 6, 9, 12, 15]
+    depth_vs_test_loss_nn = get_loss_from_nn(training_dataset_size_arr, depth_arr)
     batch_size_vs_loss_kf_rbf = get_loss_from_kf_rbf(training_dataset_size_arr)
 
 
-    # Plotting
+    # Plotting MSE vs Network Depth
+    graph_data = {}
+    fig, ax = plt.subplots(1,1)
+    for i, training_size in enumerate(training_dataset_size_arr):
+        graph_data[int(training_size)] = [batch_size_vs_loss_kf_rbf[str(training_size)]]
+        for key, value in depth_vs_test_loss_nn.items():
+            graph_data[int(training_size)] += [value[i]]
+
+    for key, value in graph_data.items():
+        ax.plot(value, 'o-', label=f"""Number of Training points = {key}""")
+    x_tick_labels = ['Kernel Flow RBF'] +  ["Depth = " + str(x) for x in depth_arr]
+    ax.set_xticks(np.arange(len(x_tick_labels)))
+    ax.set_xticklabels(x_tick_labels, rotation = 45)
+    ax.set_xlabel("Architecture")
+    ax.set_ylabel("MSE Loss")
+    plt.legend()
+    plt.tight_layout()
+    fig.savefig("figs/sine_wave_training_mse_loss_vs_arch_sigmoid.png")
+
+
+    # Plotting MSE vs Training size
     fig, ax = plt.subplots(1,1)
     for key, value in depth_vs_test_loss_nn.items():
-        ax.plot(training_dataset_size_arr, depth_vs_test_loss_nn[key], 'o-', label=f""" NN Depth {str(key)}""")
+        ax.plot(training_dataset_size_arr, depth_vs_test_loss_nn[key], 'o-', label=f""" NN Depth {str(key+1)}""")
 
     ax.plot(training_dataset_size_arr, batch_size_vs_loss_kf_rbf.values(), '*--', label='Kernel Flow - RBF')
     ax.set_xlabel("Training data size")
     ax.set_ylabel("MSE Loss")
     plt.legend()
     plt.tight_layout()
-    fig.savefig("figs/sine_wave_training_mse_loss.png")
+    fig.savefig("figs/sine_wave_training_mse_loss_sigmoid.png")
+
+    # # Plotting
+    # fig, ax = plt.subplots(1,1)
+    # for key, value in depth_vs_test_loss_nn.items():
+    #     ax.plot(training_dataset_size_arr, depth_vs_test_loss_nn[key], 'o-', label=f""" NN Depth {str(key)}""")
+
+    # ax.plot(training_dataset_size_arr, batch_size_vs_loss_kf_rbf.values(), '*--', label='Kernel Flow - RBF')
+    # ax.set_xlabel("Training data size")
+    # ax.set_ylabel("MSE Loss")
+    # plt.legend()
+    # plt.tight_layout()
+    # fig.savefig("figs/sine_wave_training_mse_loss_relu.png")

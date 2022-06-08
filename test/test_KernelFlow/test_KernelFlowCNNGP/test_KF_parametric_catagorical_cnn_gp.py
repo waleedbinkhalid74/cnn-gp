@@ -145,8 +145,8 @@ def test_blocked_kernel_eval_square_result():
 def test_blocked_kernel_eval_rec_result():
     """Test if blocked kernel evaluation with remainder answer results in the same result as a complete evaluation
     """
-    X = torch.rand((5000, 1, 28, 28))
-    Y = torch.rand((5000, 10))
+    X = torch.rand((100, 1, 28, 28))
+    Y = torch.rand((100, 10))
 
     model_untrained = Sequential(3.0, 5.0,
         Conv2d(kernel_size=3),
@@ -159,54 +159,54 @@ def test_blocked_kernel_eval_rec_result():
     with torch.no_grad():
 
         # Complete Kernel
-        k_full = model_untrained(X[:125], X[:125]).detach().numpy()
+        k_full = model_untrained(X[:25], X[:25]).detach().numpy()
 
         # Blockwise Kernel
-        k_blocked = KernelFlowsTorch._block_kernel_eval(X=X[:125],
-                                                        Y=X[:125],
+        k_blocked = KernelFlowsTorch._block_kernel_eval(X=X[:25],
+                                                        Y=X[:25],
                                                         blocksize=50,
                                                         kernel=model_untrained).numpy()
         assert np.all(np.equal(k_full, k_blocked))
 
         # Complete Kernel
-        k_full = model_untrained(X[:120], X[:125]).detach().numpy()
+        k_full = model_untrained(X[:20], X[:25]).detach().numpy()
 
         # Blockwise Kernel
-        k_blocked = KernelFlowsTorch._block_kernel_eval(X=X[:120],
-                                                        Y=X[:125],
-                                                        blocksize=50,
-                                                        kernel=model_untrained).numpy()
-
-        assert np.all(np.equal(k_full, k_blocked))
-
-        # Complete Kernel
-        k_full = model_untrained(X[:116], X[:110]).detach().numpy()
-
-        # Blockwise Kernel
-        k_blocked = KernelFlowsTorch._block_kernel_eval(X=X[:116],
-                                                        Y=X[:110],
+        k_blocked = KernelFlowsTorch._block_kernel_eval(X=X[:20],
+                                                        Y=X[:25],
                                                         blocksize=50,
                                                         kernel=model_untrained).numpy()
 
         assert np.all(np.equal(k_full, k_blocked))
 
         # Complete Kernel
-        k_full = model_untrained(X[:125], X[:125]).detach().numpy()
+        k_full = model_untrained(X[:16], X[:10]).detach().numpy()
 
         # Blockwise Kernel
-        k_blocked = KernelFlowsTorch._block_kernel_eval(X=X[:125],
-                                                        Y=X[:125],
+        k_blocked = KernelFlowsTorch._block_kernel_eval(X=X[:16],
+                                                        Y=X[:10],
+                                                        blocksize=50,
+                                                        kernel=model_untrained).numpy()
+
+        assert np.all(np.equal(k_full, k_blocked))
+
+        # Complete Kernel
+        k_full = model_untrained(X[:25], X[:25]).detach().numpy()
+
+        # Blockwise Kernel
+        k_blocked = KernelFlowsTorch._block_kernel_eval(X=X[:25],
+                                                        Y=X[:25],
                                                         blocksize=100,
                                                         kernel=model_untrained).numpy()
 
         assert np.all(np.equal(k_full, k_blocked))
 
         # Complete Kernel
-        k_full = model_untrained(X[:1000], X[:100]).detach().numpy()
+        k_full = model_untrained(X[:100], X[:10]).detach().numpy()
 
         # Blockwise Kernel
-        k_blocked = KernelFlowsTorch._block_kernel_eval(X=X[:1000],
-                                                        Y=X[:100],
+        k_blocked = KernelFlowsTorch._block_kernel_eval(X=X[:100],
+                                                        Y=X[:10],
                                                         blocksize=100,
                                                         kernel=model_untrained).numpy()
 

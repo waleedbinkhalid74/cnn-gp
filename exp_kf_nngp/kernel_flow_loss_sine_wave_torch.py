@@ -4,16 +4,20 @@ import numpy as np
 import sys
 import os
 import torch
-from torch import nn, optim
+from torch import nn
 from torch.utils.data import Dataset, DataLoader
-
+import random 
 sys.path.insert(0, os.getcwd() + '/.')
 from KernelFlow import KernelFlowsNP
 
-def train_network(model, dataloader, epochs, learning_rate):
+def train_network(model, dataloader, epochs, learning_rate, val_set = False):
     optimizer =  torch.optim.Adam(model.parameters(), lr=learning_rate)
     criterion = nn.MSELoss()
     total_loss = []
+    last_loss = 100
+    trigger_times = 0
+    patience = 5
+
     for epoch in range(epochs):
         for i, (data, target) in enumerate(dataloader):
             pred = model(data)
@@ -22,16 +26,34 @@ def train_network(model, dataloader, epochs, learning_rate):
             loss.backward()
             optimizer.step()
             total_loss.append(loss.detach().numpy())
+
+        # Early stoppping based on validation dataset
+        if val_set:
+            with torch.no_grad():
+                predict_nn = model(val_set[0])
+            current_loss = criterion(predict_nn.numpy(), val_set[1].numpy())
+            if current_loss > last_loss:
+                trigger_times += 1
+                if trigger_times >= patience:
+                    return model, total_loss
+            else:
+                trigger_times = 0
+            last_loss = current_loss
+
     return model, total_loss
 
 class SineWave(Dataset):
 
-    def __init__(self, n=100, low_x=0.0, high_x=2*np.pi):
+    def __init__(self, n=100, low_x=0.0, high_x=2*np.pi, random_train = False):
         xbound_low = low_x
         xbound_high = high_x
         target_fn = lambda x: np.sin(x)
-        x = np.linspace(xbound_low, xbound_high, n)
-        x = np.reshape(x, (x.shape[0], -1))
+        if random_train == True:
+            x = random.sample(range(low_x, high_x), n)
+            x = np.reshape(x, (x.shape[0], -1))
+        else:
+            x = np.linspace(xbound_low, xbound_high, n)
+            x = np.reshape(x, (x.shape[0], -1))
         y = target_fn(x)
         self.x = torch.from_numpy(x).to(torch.float32)
         self.y = torch.from_numpy(y).to(torch.float32)
@@ -48,12 +70,12 @@ def get_torch_nn(n=1):
     for _ in range(n):  # n_layers
         layers += [
         nn.Linear(32, 32), 
-        nn.ReLU()
+        nn.Sigmoid()
         ]
 
     model = nn.Sequential(
         nn.Linear(1, 32),
-        nn.ReLU(),
+        nn.Sigmoid(),
         *layers,
         nn.Linear(32, 1),
     )
@@ -65,36 +87,49 @@ def get_mse_loss(pred, y):
 def get_loss_from_nn(training_dataset_size_arr, depth_arr):
     print("Evaluating Neural Networks...")
     test_size = 100
+    val_size = 10
 
     depth_vs_test_loss = {}
     low_x = 0.0
     high_x = 2*np.pi
+
+    # Validation dataset
+    val_dataset = SineWave(val_size)
+    val_dataloader = DataLoader(dataset=val_dataset, batch_size = val_size, shuffle=False)
+    val_xs, val_ys = next(iter(val_dataloader))
+    val_set = (val_xs, val_ys)
+
+    # Test dataset
+    test_dataset = SineWave(test_size)
+    test_dataloader = DataLoader(dataset=test_dataset, batch_size = test_size, shuffle=False)
+    test_xs, test_ys = next(iter(test_dataloader))
+    fig, ax = plt.subplots(1,1)
     for training_size in tqdm(training_dataset_size_arr):
         print(f"""Training Size: {training_size}""")
+        # Train dataset
         train_dataset = SineWave(training_size, low_x=low_x, high_x=high_x)
         train_dataloader = DataLoader(dataset=train_dataset, batch_size = int(training_size), shuffle=False)
-
-        test_dataset = SineWave(test_size)
-        test_dataloader = DataLoader(dataset=test_dataset, batch_size = test_size, shuffle=False)
-        test_xs, test_ys = next(iter(test_dataloader))
+        train_xs, train_ys = next(iter(train_dataloader))
 
         for n in tqdm(depth_arr):#, 2, 3, 5, 10]):
             network_depth = n
             net = get_torch_nn(network_depth)
-            # key, net_key = random.split(key)
             learning_rate = 0.001
-            training_steps = 10000
+            training_steps = 5000
             train_network(model=net, dataloader=train_dataloader, 
-                            epochs=training_steps, learning_rate=learning_rate)
+                            epochs=training_steps, learning_rate=learning_rate, val_set=False)
 
-            # print(loss(get_params(opt_state), *test))
             with torch.no_grad():
                 predict_nn = net(test_xs)
+            ax.plot(test_xs, predict_nn)
+            ax.plot(test_xs, test_ys)
+            ax.plot(train_xs, train_ys, 'o')
             if network_depth in depth_vs_test_loss:
                 depth_vs_test_loss[network_depth].append(get_mse_loss(predict_nn.numpy(), test_ys.numpy()))
             else:
                 depth_vs_test_loss[network_depth] = [get_mse_loss(predict_nn.numpy(), test_ys.numpy())]
-            
+    
+    fig.savefig('figs/dump.png')
     return depth_vs_test_loss
 
 def get_loss_from_kf_rbf(training_dataset_size_arr):
@@ -129,7 +164,7 @@ def get_loss_from_kf_rbf(training_dataset_size_arr):
 
 if __name__ == "__main__":
     training_dataset_size_arr = np.arange(5, 11, 1, dtype=int)
-    depth_arr = [0, 1, 2, 3, 4, 5, 8, 10, 13, 15]
+    depth_arr = [0, 1, 2, 3, 5, 8, 11, 14]
     depth_vs_test_loss_nn = get_loss_from_nn(training_dataset_size_arr, depth_arr)
     batch_size_vs_loss_kf_rbf = get_loss_from_kf_rbf(training_dataset_size_arr)
 
@@ -151,7 +186,7 @@ if __name__ == "__main__":
     ax.set_ylabel("MSE Loss")
     plt.legend()
     plt.tight_layout()
-    fig.savefig("figs/sine_wave_training_mse_loss_vs_arch_torch.png")
+    fig.savefig("figs/sine_wave_training_mse_loss_vs_arch_sigmoid_torch.png")
 
 
     # Plotting MSE vs Training size
@@ -164,4 +199,4 @@ if __name__ == "__main__":
     ax.set_ylabel("MSE Loss")
     plt.legend()
     plt.tight_layout()
-    fig.savefig("figs/sine_wave_training_mse_loss_torch.png")
+    fig.savefig("figs/sine_wave_training_mse_loss_sigmoid_torch.png")

@@ -168,7 +168,7 @@ class KernelFlowsNPJAX():
         
         # Regression coefficients in feature space
         # coeff = np.matmul(np.linalg.inv(k_matrix), Y_train)
-        coeff, _, _, _ = np.linalg.lstsq(k_matrix, Y_train, rcond=1e-8)        
+        coeff, _, _, _ = np.linalg.lstsq(k_matrix, Y_train, rcond=1e-6)        
         prediction = np.matmul(t_matrix, coeff)
         
         return prediction, coeff

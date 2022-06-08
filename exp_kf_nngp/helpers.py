@@ -26,7 +26,7 @@ def get_network(n=1):
 def get_training_test_points(n_train, n_test, rand_key, low_x = 0.0, high_x = 2*np.pi):
     train_points = n_train
     test_points = n_test
-    noise_scale = 1e-2
+    noise_scale = 0*1e-2
 
     target_fn = lambda x: np.sin(x)
 
