@@ -96,8 +96,8 @@ def get_torch_sigmoid_nn(n=1):
         nn.Sigmoid()
         ]
 
-    if _%5 == 0 and FLAGS.batch_norm:
-        layers += [nn.BatchNorm1d(32)]
+        if _%1 == 0 and FLAGS.batch_norm:
+            layers += [nn.BatchNorm1d(32)]
 
     model = nn.Sequential(
         nn.Linear(1, 32),
@@ -189,7 +189,7 @@ def get_loss_from_kf_rbf(training_dataset_size_arr):
         KF_rbf = KernelFlowsNP(kernel_name, mu)
         iterations = 1000
         batch_size = training_size
-        X_train_perturbed_rbf = KF_rbf.fit(train_xs, train_ys, iterations, batch_size = batch_size, learning_rate=0.01, reg=0.0001, type_epsilon="usual")
+        X_train_perturbed_rbf = KF_rbf.fit(train_xs, train_ys, iterations, batch_size = batch_size, learning_rate=0.01, reg=0.0001, type_epsilon="relative")
         predict_kf_rbf = KF_rbf.predict(test_xs, regu=0.0001)
         batch_size_vs_loss[str(training_size)] = get_mse_loss(pred=predict_kf_rbf, y=test_ys)
     return batch_size_vs_loss
