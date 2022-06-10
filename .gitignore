@@ -8,7 +8,7 @@ results/
 parallel_kernel_eval.py
 matlab/
 dumpster/
-!CNN_GP_Memory.ipynb
+# !CNN_GP_Memory.ipynb
 models/
 debugger.py
 # Byte-compiled / optimized / DLL files
