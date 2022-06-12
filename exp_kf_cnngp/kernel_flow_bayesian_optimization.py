@@ -1,3 +1,4 @@
+import copy
 import torch
 import numpy as np
 import matplotlib.pyplot as plt
@@ -25,7 +26,7 @@ def main(_):
 
     rand_acc_matrix = []
     # Getting accuracy for randomly initialized CNNGP
-    if FLAGS.CNNGP_model == 'alonso_etal_covnet': 
+    if FLAGS.CNNGP_model == 'alonso_etal_convnet': 
         rand_acc = []
         for N_i in tqdm(N_i_arr):
             Y_predictions_rand_cnngp = KernelFlowsTorch.kernel_regression(X_test=X_test, X_train=X_train[:N_i], 
@@ -37,23 +38,27 @@ def main(_):
             rand_acc.append(accuracy_score(Y_predictions_rand_cnngp_labels, Y_test.cpu().numpy()) * 100)
 
     else:
+        mean_accuracy = 100.0
         for i in range(5):
-            cnn_gp = kernel_flow_configs.get_CNNGP(model_name = FLAGS.CNNGP_model, device=DEVICE)
+            cnn_gp_temp = kernel_flow_configs.get_CNNGP(model_name = FLAGS.CNNGP_model, device=DEVICE)
             rand_acc = []
             for N_i in tqdm(N_i_arr):
                 Y_predictions_rand_cnngp = KernelFlowsTorch.kernel_regression(X_test=X_test, X_train=X_train[:N_i], 
-                                                                                            Y_train=Y_train[:N_i], kernel=cnn_gp, 
+                                                                                            Y_train=Y_train[:N_i], kernel=cnn_gp_temp, 
                                                                                             regularization_lambda=0.0001, blocksize=250, 
                                                                                             device=DEVICE)
 
                 Y_predictions_rand_cnngp_labels = get_label_from_probability(Y_predictions_rand_cnngp)
                 rand_acc.append(accuracy_score(Y_predictions_rand_cnngp_labels, Y_test.cpu().numpy()) * 100)
+            if mean_accuracy > np.mean(rand_acc):
+                mean_accuracy = np.mean(rand_acc)
+                cnn_gp = copy.deepcopy(cnn_gp_temp)
+
             rand_acc_matrix.append(np.array(rand_acc))
 
         rand_acc_matrix = np.array(rand_acc_matrix)
         rand_min = rand_acc_matrix.min(axis=0)
         rand_max = rand_acc_matrix.max(axis=0)
-    # plt.show()
       
     # Training with Bayesian Optimization
     parameter_bounds = [(1e-3, 200.0), (0.0, 200.0)]
@@ -61,9 +66,9 @@ def main(_):
     start = time.time()
     res = KF_BO.fit(X_train, Y_train, iterations=50, batch_size=1200, 
                     sample_proportion=0.5, parameter_bounds_BO=parameter_bounds, 
-                    random_starts=15, method='bayesian optimization')
+                    random_starts=25, method='bayesian optimization')
     stop = time.time()
-    print(f"""Bayesian Optimization took {stop - start} seconds to fit for 50 iterations. One iteration took on average {50 / (stop - start)} seconds""")
+    print(f"""Bayesian Optimization took {stop - start} seconds to fit for 50 iterations. One iteration took on average {(stop - start) / 50} seconds""")
 
     fig, ax = plt.subplots(1,1)
     plot_convergence(res, ax=ax)
@@ -81,8 +86,8 @@ def main(_):
         bo_acc.append(accuracy_score(Y_predictions_trained_labels, Y_test.cpu().numpy()) * 100)
 
     fig, ax = plt.subplots(1,1)
-    if FLAGS.CNNGP_model == 'alonso_etal_covnet':
-        ax.plot(N_i_arr, rand_acc, '-*', label='Covnet with parameters from Garriga-Alonso')
+    if FLAGS.CNNGP_model == 'alonso_etal_convnet':
+        ax.plot(N_i_arr, rand_acc, '-*', label='ConvNet-GP with parameters from Garriga-Alonso et al')
     else:
         # ax.plot(N_i_arr, rand_acc, '-*', label='CNNGP with randomly initialized $\sigma_w$ and $\sigma_b$')
         ax.fill_between(N_i_arr, rand_min, rand_max, alpha=0.25, label='CNNGPs with randomly initialized $\sigma_w$ and $\sigma_b$')
@@ -90,18 +95,18 @@ def main(_):
 
     ax.plot(N_i_arr, bo_acc, '-o', label='Bayesian Optimization Trained CNNGP')
 
-    # If experiment is done with covnet then the covnet model in Alonso et al is also compared
-    if FLAGS.CNNGP_model == 'covnet':
-        covnet_alonso_etal = kernel_flow_configs.get_CNNGP('alonso_etal_covnet', device=DEVICE)
-        covnet_alonso_etal_acc = []
+    # If experiment is done with convnet then the convnet model in Alonso et al is also compared
+    if FLAGS.CNNGP_model == 'convnet':
+        convnet_alonso_etal = kernel_flow_configs.get_CNNGP('alonso_etal_convnet', device=DEVICE)
+        convnet_alonso_etal_acc = []
         for N_i in tqdm(N_i_arr):
             Y_predictions_trained = KernelFlowsTorch.kernel_regression(X_test=X_test, X_train=X_train[:N_i], 
-                                                                                    Y_train=Y_train[:N_i], kernel=covnet_alonso_etal, 
+                                                                                    Y_train=Y_train[:N_i], kernel=convnet_alonso_etal, 
                                                                                     regularization_lambda=0.0001, blocksize=250,
                                                                                     device=DEVICE)
             Y_predictions_trained_labels = np.argmax(Y_predictions_trained.cpu(), axis=1)
-            covnet_alonso_etal_acc.append(accuracy_score(Y_predictions_trained_labels, Y_test.cpu().numpy()) * 100)
-        ax.plot(N_i_arr, covnet_alonso_etal_acc, '-v', label='Covnet with parameters from Garriga-Alonso')
+            convnet_alonso_etal_acc.append(accuracy_score(Y_predictions_trained_labels, Y_test.cpu().numpy()) * 100)
+        ax.plot(N_i_arr, convnet_alonso_etal_acc, '-v', label='ConvNet-GP with parameters from Garriga-Alonso')
 
     ax.set_xlabel("Number of input samples used for Kernel Regression $N_I$")
     ax.set_ylabel("Accuracy")
@@ -113,8 +118,8 @@ def main(_):
 
 if __name__ == '__main__':
     f = absl.app.flags
-    f.DEFINE_string("CNNGP_model", "covnet",
-                    "which CNNGP model to test on. For random covnet use covnet. For Covnet from Alonso et al use alonso_etal_covnet. For simple model use simple.")
+    f.DEFINE_string("CNNGP_model", "convnet",
+                    "which CNNGP model to test on. For random convnet use convnet. For convnet from Alonso et al use alonso_etal_convnet. For simple model use simple.")
     f.DEFINE_string("dataset", "mnist",
                 "which dataset to work with")
     absl.app.run(main)
