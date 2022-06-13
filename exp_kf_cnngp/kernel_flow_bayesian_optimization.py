@@ -53,22 +53,23 @@ def main(_):
             if mean_accuracy > np.mean(rand_acc):
                 mean_accuracy = np.mean(rand_acc)
                 cnn_gp = copy.deepcopy(cnn_gp_temp)
-
             rand_acc_matrix.append(np.array(rand_acc))
 
         rand_acc_matrix = np.array(rand_acc_matrix)
         rand_min = rand_acc_matrix.min(axis=0)
         rand_max = rand_acc_matrix.max(axis=0)
-      
+        plt.fill_between(N_i_arr, rand_min, rand_max, alpha=0.25, label='CNNGPs with randomly initialized $\sigma_w$ and $\sigma_b$')
+        plt.show()
     # Training with Bayesian Optimization
     parameter_bounds = [(1e-3, 200.0), (0.0, 200.0)]
     KF_BO = KernelFlowsTorch(cnn_gp, device=DEVICE, regularization_lambda=1e-4)
+    iteration_count = 50
     start = time.time()
-    res = KF_BO.fit(X_train, Y_train, iterations=50, batch_size=1200, 
+    res = KF_BO.fit(X_train, Y_train, iterations=iteration_count, batch_size=1200, 
                     sample_proportion=0.5, parameter_bounds_BO=parameter_bounds, 
-                    random_starts=25, method='bayesian optimization')
+                    random_starts=iteration_count // 2, method='bayesian optimization')
     stop = time.time()
-    print(f"""Bayesian Optimization took {stop - start} seconds to fit for 50 iterations. One iteration took on average {(stop - start) / 50} seconds""")
+    print(f"""Bayesian Optimization took {stop - start} seconds to fit for {iteration_count} iterations. One iteration took on average {(stop - start) / iteration_count} seconds""")
 
     fig, ax = plt.subplots(1,1)
     plot_convergence(res, ax=ax)
@@ -106,7 +107,7 @@ def main(_):
                                                                                     device=DEVICE)
             Y_predictions_trained_labels = np.argmax(Y_predictions_trained.cpu(), axis=1)
             convnet_alonso_etal_acc.append(accuracy_score(Y_predictions_trained_labels, Y_test.cpu().numpy()) * 100)
-        ax.plot(N_i_arr, convnet_alonso_etal_acc, '-v', label='ConvNet-GP with parameters from Garriga-Alonso')
+        ax.plot(N_i_arr, convnet_alonso_etal_acc, '-v', label='ConvNet-GP with parameters from Garriga-Alonso et al')
 
     ax.set_xlabel("Number of input samples used for Kernel Regression $N_I$")
     ax.set_ylabel("Accuracy")

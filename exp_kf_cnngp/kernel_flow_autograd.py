@@ -1,3 +1,4 @@
+import time
 import torch
 import numpy as np
 import matplotlib.pyplot as plt
@@ -36,13 +37,17 @@ def main(_):
         Y_predictions_rand_cnngp_labels = get_label_from_probability(Y_predictions_rand_cnngp)
         rand_acc.append(accuracy_score(Y_predictions_rand_cnngp_labels, Y_test.cpu().numpy()) * 100)
 
-    plt.plot(rand_acc)
-    plt.ylim((0,100))
-    plt.show()
+    # plt.plot(rand_acc)
+    # plt.ylim((0,100))
+    # plt.show()
 
     KF_autograd = KernelFlowsTorch(cnn_gp, device=DEVICE, regularization_lambda=1e-4)
-    KF_autograd.fit(X_train, Y_train, iterations=1000, batch_size=600,
+    iteration_count = 1000
+    start = time.time()
+    KF_autograd.fit(X_train, Y_train, iterations=iteration_count, batch_size=600,
                             sample_proportion=0.5, method='autograd')
+    stop = time.time()
+    print(f"""Automatic Differentiation took {stop - start} seconds to fit for {iteration_count} iterations. One iteration took on average {(stop - start) / iteration_count} seconds""")
 
     fig, ax = plt.subplots(1,1)
     ax.plot(KF_autograd.rho_values)
@@ -53,7 +58,7 @@ def main(_):
     ax.set_ylim((0, 1))
     plt.legend()
     plt.show()
-    fig.savefig('./figs/autograd_rho_' + FLAGS.CNNGP_model + "_" + FLAGS.dataset + '.png')
+    # fig.savefig('./figs/autograd_rho_' + FLAGS.CNNGP_model + "_" + FLAGS.dataset + '.png')
 
     print(f"""Final Parameters: var_weight = {cnn_gp.var_weight}, var_bias = {cnn_gp.var_bias}""")
 
@@ -77,7 +82,7 @@ def main(_):
     plt.yticks(np.arange(0, 101, 5.0))
     plt.legend()
     plt.show()
-    fig.savefig('./figs/autograd_accuracy_' + FLAGS.CNNGP_model + "_" + FLAGS.dataset + '.png')
+    # fig.savefig('./figs/autograd_accuracy_' + FLAGS.CNNGP_model + "_" + FLAGS.dataset + '.png')
 
 if __name__ == '__main__':
     f = absl.app.flags

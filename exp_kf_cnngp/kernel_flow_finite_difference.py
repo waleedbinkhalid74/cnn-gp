@@ -39,12 +39,12 @@ def main(_):
     else:
         mean_accuracy = 100.0
         for i in range(5):
-            cnn_gp = kernel_flow_configs.get_CNNGP(model_name = FLAGS.CNNGP_model, device=DEVICE)
+            cnn_gp_temp = kernel_flow_configs.get_CNNGP(model_name = FLAGS.CNNGP_model, device=DEVICE)
             rand_acc = []
-            print(f"""Parameters: var_weight = {cnn_gp.var_weight}, var_bias = {cnn_gp.var_bias}""")
+            print(f"""Parameters: var_weight = {cnn_gp_temp.var_weight}, var_bias = {cnn_gp_temp.var_bias}""")
             for N_i in tqdm(N_i_arr):
                 Y_predictions_rand_cnngp = KernelFlowsTorch.kernel_regression(X_test=X_test, X_train=X_train[:N_i], 
-                                                                                            Y_train=Y_train[:N_i], kernel=cnn_gp, 
+                                                                                            Y_train=Y_train[:N_i], kernel=cnn_gp_temp, 
                                                                                             regularization_lambda=0.0001, blocksize=250, 
                                                                                             device=DEVICE)
 
@@ -52,20 +52,23 @@ def main(_):
                 rand_acc.append(accuracy_score(Y_predictions_rand_cnngp_labels, Y_test.cpu().numpy()) * 100)
             if mean_accuracy > np.mean(rand_acc):
                 mean_accuracy = np.mean(rand_acc)
-                cnn_gp = copy.deepcopy(cnn_gp)
+                cnn_gp = copy.deepcopy(cnn_gp_temp)
             rand_acc_matrix.append(np.array(rand_acc))
 
         rand_acc_matrix = np.array(rand_acc_matrix)
         rand_min = rand_acc_matrix.min(axis=0)
         rand_max = rand_acc_matrix.max(axis=0)
+        plt.fill_between(N_i_arr, rand_min, rand_max, alpha=0.25, label='CNNGPs with randomly initialized $\sigma_w$ and $\sigma_b$')
+        plt.show()
 
     # Optimizing via finite difference
     KF_finite_diff = KernelFlowsTorch(cnn_gp, device=DEVICE, regularization_lambda=1e-4)
     start = time.time()
-    KF_finite_diff.fit(X_train, Y_train, iterations=500, batch_size=600,
+    iteration_count = 500
+    KF_finite_diff.fit(X_train, Y_train, iterations=iteration_count, batch_size=600,
                             sample_proportion=0.5, method='finite difference')
     stop = time.time()
-    print(f"""Finite Difference took {stop - start} seconds to fit for 50 iterations. One iteration took on average {(stop - start) / 50} seconds""")
+    print(f"""Finite Difference took {stop - start} seconds to fit for {iteration_count} iterations. One iteration took on average {(stop - start) / iteration_count} seconds""")
 
     fig, ax = plt.subplots(1,1)
     ax.plot(KF_finite_diff.rho_values)

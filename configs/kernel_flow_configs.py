@@ -9,8 +9,8 @@ def get_CNNGP(model_name: str = 'convnet', device: str = 'cpu')-> NNGPKernel:
         NNGPKernel: CNNGP Kernel
     """
     np.random.seed(int(time.time()))
-    var_weight = np.random.rand()*200.0
-    var_bias = np.random.rand()*200.0    
+    var_weight = np.random.rand()*100.0
+    var_bias = np.random.rand()*100.0    
     if model_name == 'convnet':
         print("Selected ConvNet-GP")
         layers = []
