@@ -457,6 +457,7 @@ class KernelFlowsTorch():
 
             # Store value of rho
             self.rho_values.append(rho.cpu().detach().numpy())
+            del rho
         return None
 
     def _fit_finite_difference(self, X: torch.Tensor, Y: torch.Tensor, iterations: int, batch_size: int = False,

@@ -22,7 +22,7 @@ DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 def main(_):
     X_train, Y_train, X_test, Y_test = get_dataset(dataset=FLAGS.dataset, train_size=50000, val_size=1000, device=DEVICE)
 
-    N_i_arr = np.arange(100, 1600, 100)
+    N_i_arr = np.arange(100, 200, 100)
 
     rand_acc_matrix = []
     # Getting accuracy for randomly initialized CNNGP
@@ -39,7 +39,7 @@ def main(_):
 
     else:
         mean_accuracy = 100.0
-        for i in range(5):
+        for i in range(1):
             cnn_gp_temp = kernel_flow_configs.get_CNNGP(model_name = FLAGS.CNNGP_model, device=DEVICE)
             rand_acc = []
             for N_i in tqdm(N_i_arr):

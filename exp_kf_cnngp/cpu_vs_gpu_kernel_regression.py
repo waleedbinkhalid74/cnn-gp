@@ -60,29 +60,29 @@ def main(_):
             k_x_prime_x = get_kernel(X_test, X_train_Ni, cnngp=cnn_gp)
 
         # CPU evaluation
-        # k_inv_Y_cpu = torch.linalg.lstsq(k_xx.cpu(), Y_train_Ni.cpu(), rcond=1e-8).solution
-        k_inv_Y_cpu = torch.matmul(torch.linalg.inv(k_xx.cpu()), Y_train_Ni.cpu())
+        k_inv_Y_cpu = torch.linalg.lstsq(k_xx.cpu(), Y_train_Ni.cpu(), rcond=1e-8).solution
+        # k_inv_Y_cpu = torch.matmul(torch.linalg.inv(k_xx.cpu()), Y_train_Ni.cpu())
         prediction_cpu = torch.matmul(k_x_prime_x.cpu(), k_inv_Y_cpu)
         prediction_labels_cpu = get_label_from_probability(prediction_cpu)
         cpu_acc.append(accuracy_score(prediction_labels_cpu, Y_test.cpu().numpy()) * 100)
 
         # GPU evaluation
-        # k_inv_Y_gpu = torch.linalg.lstsq(k_xx, Y_train_Ni, rcond=1e-8).solution
-        k_inv_Y_gpu = torch.matmul(torch.linalg.inv(k_xx), Y_train_Ni)
+        k_inv_Y_gpu = torch.linalg.lstsq(k_xx, Y_train_Ni, rcond=1e-8).solution
+        # k_inv_Y_gpu = torch.matmul(torch.linalg.inv(k_xx), Y_train_Ni)
         prediction_gpu = torch.matmul(k_x_prime_x, k_inv_Y_gpu)
         prediction_labels_gpu = get_label_from_probability(prediction_gpu)
         gpu_acc.append(accuracy_score(prediction_labels_gpu, Y_test.cpu().numpy()) * 100)
 
         # CPU evaluation float 64
-        # k_inv_Y_cpu_float64 = torch.linalg.lstsq(k_xx.cpu().to(torch.float64), Y_train_Ni.cpu().to(torch.float64), rcond=1e-8).solution
-        k_inv_Y_cpu_float64 = torch.matmul(torch.linalg.inv(k_xx.cpu().to(torch.float64)), Y_train_Ni.cpu().to(torch.float64))
+        k_inv_Y_cpu_float64 = torch.linalg.lstsq(k_xx.cpu().to(torch.float64), Y_train_Ni.cpu().to(torch.float64), rcond=1e-8).solution
+        # k_inv_Y_cpu_float64 = torch.matmul(torch.linalg.inv(k_xx.cpu().to(torch.float64)), Y_train_Ni.cpu().to(torch.float64))
         prediction_cpu_float64 = torch.matmul(k_x_prime_x.cpu().to(torch.float64), k_inv_Y_cpu_float64)
         prediction_labels_cpu_float64 = get_label_from_probability(prediction_cpu_float64)
         cpu_acc_float64.append(accuracy_score(prediction_labels_cpu_float64, Y_test.cpu().to(torch.float64).numpy()) * 100)
 
         # GPU evaluation float 64
-        # k_inv_Y_gpu_float64 = torch.linalg.lstsq(k_xx.to(torch.float64), Y_train_Ni.to(torch.float64), rcond=1e-8).solution
-        k_inv_Y_gpu_float64 = torch.matmul(torch.linalg.inv(k_xx.to(torch.float64)), Y_train_Ni.to(torch.float64))
+        k_inv_Y_gpu_float64 = torch.linalg.lstsq(k_xx.to(torch.float64), Y_train_Ni.to(torch.float64), rcond=1e-8).solution
+        # k_inv_Y_gpu_float64 = torch.matmul(torch.linalg.inv(k_xx.to(torch.float64)), Y_train_Ni.to(torch.float64))
         prediction_gpu_float64 = torch.matmul(k_x_prime_x.to(torch.float64), k_inv_Y_gpu_float64)
         prediction_labels_gpu_float64 = get_label_from_probability(prediction_gpu_float64)
         gpu_acc_float64.append(accuracy_score(prediction_labels_gpu_float64, Y_test.cpu().to(torch.float64).numpy()) * 100)

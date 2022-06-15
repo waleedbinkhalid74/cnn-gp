@@ -39,24 +39,29 @@ for data_size in tqdm(data_size_arr):
     # CPU Evaluations Float 64
     # cpu_matmul_float64 = torch.matmul(A_i.to(torch.float64), B_i.to(torch.float64))
     cpu_lstsq_float64 = torch.linalg.lstsq(A_i.to(torch.float64), b_i.to(torch.float64), rcond=1e-8).solution
+    cpu_lstsq_float64 = torch.matmul(B_i.to(torch.float64), cpu_lstsq_float64)
     # cpu_kg_float64 = torch.matmul(B_i.to(torch.float64), cpu_lstsq_float64)
     # cpu_lstsq_float64 = torch.matmul(torch.linalg.inv(A_i), b_i)
 
     # CPU Evaluations Float 32
     # cpu_matmul_float32 = torch.matmul(A_i, A_i)
     cpu_lstsq_float32 = torch.linalg.lstsq(A_i, b_i, rcond=1e-8).solution
+    cpu_lstsq_float32 = torch.matmul(B_i, cpu_lstsq_float32)
     # cpu_kg_float32 = torch.matmul(B_i, cpu_lstsq_float32)
     # cpu_lstsq_float32 = torch.matmul(torch.linalg.inv(A_i.to(torch.float32)), b_i.to(torch.float32))
 
     # GPU Evaluations Float 64
     # gpu_matmul_float64 = torch.matmul(A_i.to(torch.float64).cuda(), B_i.to(torch.float64).cuda())
     gpu_lstsq_float64 = torch.linalg.lstsq(A_i.to(torch.float64).cuda(), b_i.to(torch.float64).cuda(), rcond=1e-8).solution
+    gpu_lstsq_float64 = torch.matmul(B_i.to(torch.float64).cuda(), gpu_lstsq_float64)
     # gpu_kg_float64 = torch.matmul(B_i.to(torch.float64).cuda(), gpu_lstsq_float64)
     # gpu_lstsq_float64 = torch.matmul(torch.linalg.inv(A_i.cuda()), b_i.cuda())
 
     # CPU Evaluations Float 32
     # gpu_matmul_float32 = torch.matmul(A_i.cuda(), B_i.cuda())
     gpu_lstsq_float32 = torch.linalg.lstsq(A_i.cuda(), b_i.cuda(), rcond=1e-8).solution
+    gpu_lstsq_float32 = torch.matmul(B_i.cuda(), gpu_lstsq_float32)
+
     # gpu_kg_float32 = torch.matmul(B_i.to(torch.float32).cuda(), gpu_lstsq_float32)
     # gpu_lstsq_float32 = torch.matmul(torch.linalg.inv(A_i.to(torch.float32).cuda()), b_i.to(torch.float32).cuda())
 
