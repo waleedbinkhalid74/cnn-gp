@@ -535,7 +535,12 @@ class KernelFlowsTorch():
                 print(f"""Warning, rho outside [0,1]. rho = {rho}""")
 
             if torch.isnan(rho):
-                raise ValueError("rho is NaN!")
+                # raise ValueError("rho is NaN!")
+                print("Warning, rho is NaN! Reseting model")
+                for i, param in enumerate(self.cnn_gp_kernel.parameters()):
+                    param.data = torch.tensor([np.random.rand()*10.0]).to(self.device)
+                continue
+
 
             # Calculate gradients using finite difference
             for param in self.cnn_gp_kernel.parameters():

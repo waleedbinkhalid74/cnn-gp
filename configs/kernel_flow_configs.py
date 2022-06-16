@@ -23,6 +23,18 @@ def get_CNNGP(model_name: str = 'convnet', device: str = 'cpu')-> NNGPKernel:
                 *layers,
                 Conv2d(kernel_size=28, padding=0),
                 )
+    if model_name == 'convnet_cifar':
+        print("Selected ConvNet-GP for CIFAR Dataset")
+        layers = []
+        for _ in range(7):  # n_layers
+            layers += [
+                Conv2d(kernel_size=8, padding="same"),
+                ReLU(),
+            ]
+            cnn_gp = Sequential(var_weight, var_bias,
+                *layers,
+                Conv2d(kernel_size=32, padding=0),
+                )
     elif model_name == 'simple':
         print("Selected simple 3 layer network")
         cnn_gp = Sequential(var_weight, var_bias,
