@@ -34,7 +34,8 @@ def get_CIFAR_dataset(train_size: int, val_size: int, shuffle: bool = True, devi
         Train dataset, Train dataset targets as one hot encoding
         Test dataset, Test dataset targets
     """
-    transform = transforms.Compose([transforms.ToTensor()])
+    transform = transforms.Compose([transforms.ToTensor(),
+                                    transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))])
     trainset = datasets.CIFAR10(root='CIFAR_dataset/train', train=True, download=True, transform=transform)
     valset = datasets.CIFAR10(root='CIFAR_dataset/val', train=False, download=True, transform=transform)
     trainloader = torch.utils.data.DataLoader(trainset, batch_size=train_size, shuffle=shuffle)

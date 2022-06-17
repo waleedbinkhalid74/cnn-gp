@@ -26,7 +26,7 @@ def main(_):
 
     rand_acc_matrix = []
     # Getting accuracy for randomly initialized CNNGP
-    for i in range(2):
+    for i in range(3):
         cnn_gp = kernel_flow_configs.get_CNNGP(model_name = FLAGS.CNNGP_model, device=DEVICE)
         rand_acc = []
         for N_i in tqdm(N_i_arr):
