@@ -22,7 +22,7 @@ DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 def main(_):
     X_train, Y_train, X_test, Y_test = get_dataset(dataset=FLAGS.dataset, train_size=50000, val_size=1000, device=DEVICE)
 
-    N_i_arr = np.arange(100, 200, 100)
+    N_i_arr = np.arange(100, 400, 100)
 
     rand_acc_matrix = []
     # Getting accuracy for randomly initialized CNNGP
@@ -39,7 +39,7 @@ def main(_):
 
     else:
         mean_accuracy = 100.0
-        for i in range(1):
+        for i in range(3):
             cnn_gp_temp = kernel_flow_configs.get_CNNGP(model_name = FLAGS.CNNGP_model, device=DEVICE)
             rand_acc = []
             for N_i in tqdm(N_i_arr):
@@ -63,7 +63,7 @@ def main(_):
     # Training with Bayesian Optimization
     parameter_bounds = [(1e-3, 200.0), (0.0, 200.0)]
     KF_BO = KernelFlowsTorch(cnn_gp, device=DEVICE, regularization_lambda=1e-4)
-    iteration_count = 50
+    iteration_count = 4
     start = time.time()
     res = KF_BO.fit(X_train, Y_train, iterations=iteration_count, batch_size=1200, 
                     sample_proportion=0.5, parameter_bounds_BO=parameter_bounds, 
@@ -75,7 +75,7 @@ def main(_):
     plot_convergence(res, ax=ax)
     ax.set_ylim((0,1))
     plt.show()
-    fig.savefig('./figs/bayesian_optimization_convergence_' + FLAGS.CNNGP_model + "_" + FLAGS.dataset + '.png')
+    # fig.savefig('./figs/bayesian_optimization_convergence_' + FLAGS.CNNGP_model + "_" + FLAGS.dataset + '.png')
 
     bo_acc = []
     for N_i in tqdm(N_i_arr):
@@ -115,7 +115,7 @@ def main(_):
     plt.yticks(np.arange(0, 101, 5.0))
     plt.legend()
     plt.show()
-    fig.savefig('./figs/bayesian_optimization_accuracy_' + FLAGS.CNNGP_model + "_" + FLAGS.dataset + '.png')
+    # fig.savefig('./figs/bayesian_optimization_accuracy_' + FLAGS.CNNGP_model + "_" + FLAGS.dataset + '.png')
 
 if __name__ == '__main__':
     f = absl.app.flags

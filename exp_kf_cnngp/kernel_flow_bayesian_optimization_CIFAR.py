@@ -59,7 +59,7 @@ def main(_):
     plot_convergence(res, ax=ax)
     ax.set_ylim((0,1))
     plt.show()
-    fig.savefig('./figs/bayesian_optimization_convergence_' + FLAGS.CNNGP_model + "_" + FLAGS.dataset + '.png')
+    # fig.savefig('./figs/bayesian_optimization_convergence_' + FLAGS.CNNGP_model + "_" + FLAGS.dataset + '.png')
 
     bo_acc = []
     for N_i in tqdm(N_i_arr):
@@ -82,7 +82,7 @@ def main(_):
     plt.yticks(np.arange(0, 101, 5.0))
     plt.legend()
     plt.show()
-    fig.savefig('./figs/bayesian_optimization_accuracy_' + FLAGS.CNNGP_model + "_" + FLAGS.dataset + '.png')
+    # fig.savefig('./figs/bayesian_optimization_accuracy_' + FLAGS.CNNGP_model + "_" + FLAGS.dataset + '.png')
 
 if __name__ == '__main__':
     f = absl.app.flags

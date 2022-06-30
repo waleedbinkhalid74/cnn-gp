@@ -69,7 +69,8 @@ def get_MNIST_dataset(train_size: int, val_size: int, shuffle: bool = True, devi
         Train dataset, Train dataset targets as one hot encoding
         Test dataset, Test dataset targets
     """
-    transform = transforms.Compose([transforms.ToTensor()])
+    transform = transforms.Compose([transforms.ToTensor()])#,
+                                    # transforms.Normalize((0.1307,), (0.3081,))])
     trainset = datasets.MNIST('MNIST_dataset/train', download=True, train=True, transform=transform)
     valset = datasets.MNIST('MNIST_dataset/val', download=True, train=False, transform=transform)
     trainloader = torch.utils.data.DataLoader(trainset, batch_size=train_size, shuffle=shuffle)
