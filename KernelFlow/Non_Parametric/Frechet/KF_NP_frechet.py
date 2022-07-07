@@ -150,8 +150,9 @@ def kernel_regression_coeff(X_train, X_test, Y_train, param, kernel_keyword = "R
     k_matrix += regu_lambda * np.identity(k_matrix.shape[0])
     
     # Regression coefficients in feature space
-    coeff = np.matmul(np.linalg.inv(k_matrix), Y_train)
-    
+    # coeff = np.matmul(np.linalg.inv(k_matrix), Y_train)
+    coeff, _, _, _ = np.linalg.lstsq(k_matrix, Y_train, rcond=1e-8)
+
     return coeff
     
 # This function ccomputes epsilon (relative: max relative transaltion = rate, absolute: max translation = rate)
@@ -241,11 +242,11 @@ class KernelFlowsNP():
             X += epsilon * perturbation
             
             # Recording the regression coefficients
-            self.coeff.append(coeff)
+            self.coeff.append(np.copy(coeff))
             # Update the history
             self.rho_values.append(rho)
             self.epsilon.append(epsilon)
-            self.perturbation.append(perturbation)
+            self.perturbation.append(np.copy(perturbation))
             self.batch_hist.append(np.copy(X_batch))
             
             if record_hist == True:
