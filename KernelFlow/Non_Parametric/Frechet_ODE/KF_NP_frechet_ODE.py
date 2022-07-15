@@ -194,7 +194,22 @@ class KernelFlowsNP_ODE():
         self.epsilon = []
         self.perturbation = []
     
-    def G(self, t, X, Y, X_batch, Y_batch, batch_indices, sample_indices, not_batch):
+    def G(self, t: list, X: np.ndarray, Y: np.ndarray, X_batch: np.ndarray, Y_batch: np.ndarray, batch_indices: np.ndarray, sample_indices: np.ndarray, not_batch: np.ndarray) -> np.ndarray:
+        """A callable function that calculates the perturbation using the Frechet derivative of rho. The function can be used as a callable in the ODE solver provided by python.
+
+        Args:
+            t (list): Tiem interval to integrate the ODE on
+            X (np.ndarray): X dataset
+            Y (np.ndarray): Y target of dataset
+            X_batch (np.ndarray): Batch selected randomly without replacement
+            Y_batch (np.ndarray): Targets of batch selected randomly without replacement
+            batch_indices (np.ndarray): Batch indices
+            sample_indices (np.ndarray): Sample indices selected from batch randomly without replacement
+            not_batch (np.ndarray): Indices not part of the batch
+
+        Returns:
+            np.ndarray: Preturbations calculated by frechet derivative for items in batch and by interpolation for items outside of batch
+        """
 
         X = np.reshape(X, (Y.shape[0], X.shape[0] // Y.shape[0]))
         g, rho = frechet(self.parameters, X_batch, Y_batch, sample_indices, kernel_keyword = self.kernel_keyword, regu_lambda=self.regularization_lambda)
@@ -204,12 +219,26 @@ class KernelFlowsNP_ODE():
         perturbation = np.zeros(X.shape)
         perturbation[batch_indices] = g
         perturbation[not_batch] = g_interpolate
-        # self.coeff.append(np.copy(coeff))
-        # self.rho_values.append(rho.item())
-        # self.perturbation.append(np.copy(perturbation))
+
         return perturbation.ravel()
 
-    def fit(self, X, Y, iterations, batch_size, learning_rate = 0.1, type_epsilon = "relative", show_it = 100, record_hist = True, reg = 0.000001):
+    def fit(self, X: np.ndarray, Y: np.ndarray, iterations: int, batch_size: int, learning_rate:float = 0.1, type_epsilon: str = "relative", record_hist: bool = True, reg: float = 0.000001) -> np.ndarray:
+        """Fit method to optimize a given kernel using non-parametric kernel flows using an ODE solver step for the updating of the datapoints
+
+        Args:
+            X (np.ndarray): Training dataset
+            Y (np.ndarray): Training dataset targets
+            iterations (int): Number of iterations to execute 
+            batch_size (int): Batch size in each iteration to be choosen randomly without replacement
+            learning_rate (float, optional): Not used in this method To be deleted. Defaults to 0.1.
+            type_epsilon (str, optional): Not used in this method to be deleted. Defaults to "relative".
+            record_hist (bool, optional): Not used in this method to be deleted. Defaults to True.
+            reg (float, optional): Regularization. Defaults to 0.000001.
+
+        Returns:
+            np.ndarray: Perturbed training dataset
+        """
+        
         # Create a copy of the parameters (so the original parameters aren't modified)
         self.LR = learning_rate
         self.type_epsilon = type_epsilon
