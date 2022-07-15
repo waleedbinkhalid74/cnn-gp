@@ -31,6 +31,8 @@ class KernelFlowsPJAX(KernelFlowsJAXBase):
         self.beta = beta
         self.reduction_constant = reduction_constant
         self.regularization_lambda = regularization_lambda
+        self.sigma_w = []
+        self.sigma_b = []
 
     def make_kernel(self, W_std, b_std):
         layers = []
@@ -83,6 +85,25 @@ class KernelFlowsPJAX(KernelFlowsJAXBase):
             rho_val = 1.0
         return rho_val
 
+    def _rho_fd(self, X_batch: np.ndarray, Y_batch: np.ndarray,
+            Y_sample: np.ndarray, pi_matrix: np.ndarray, params: list):
+
+        # Set the parameters of the kernel
+        kernel_fn = self.make_kernel(params[0], params[1])
+        kernel_matrix = kernel_fn(X_batch, X_batch, 'nngp')
+        kernel_matrix = np.array(kernel_matrix)
+        sample_matrix = np.matmul(pi_matrix, np.matmul(kernel_matrix, np.transpose(pi_matrix)))
+        inverse_data = np.linalg.inv(kernel_matrix + self.regularization_lambda * np.identity(kernel_matrix.shape[0]))
+        inverse_sample = np.linalg.inv(sample_matrix + self.regularization_lambda * np.identity(sample_matrix.shape[0]))
+        top = np.matmul(Y_sample.T, np.matmul(inverse_sample, Y_sample))
+        bottom = np.matmul(Y_batch.T, np.matmul(inverse_data, Y_batch))
+        rho_val = 1 - np.trace(top)/np.trace(bottom)
+
+        if rho_val <= 0.0:
+            print("Warning, rho < 0.")
+            # rho_val = 1.0
+        return rho_val
+
     def fit_bayesian_optimization(self, X, Y, iterations: int , batch_size: int = False,
                                    sample_proportion: float = 0.5, parameter_bounds_BO: list= None, 
                                    random_starts: int = 15):
@@ -108,3 +129,49 @@ class KernelFlowsPJAX(KernelFlowsJAXBase):
         self.optimized_kernel = self.make_kernel(bo_result.x[0], bo_result.x[1])
         return bo_result
     
+    def fit_finite_difference(self, X, Y, iterations: int , init_sigma_w: float, init_sigma_b: float,
+                                batch_size: int = False, sample_proportion: float = 0.5, 
+                                h: float = 1e-4):
+        self.X = X
+        self.Y = Y
+        sigma_w = init_sigma_w
+        sigma_b = init_sigma_b
+        for i in tqdm(range(iterations)):
+            self.sigma_w.append(sigma_w)
+            self.sigma_b.append(sigma_b)
+            
+            # Create batch N_f and sample N_c = p*N_f
+            sample_indices, batch_indices = KernelFlowsPJAX.batch_creation(dataset_size= self.X.shape[0],
+                                                                            batch_size= batch_size,
+                                                                            sample_proportion= sample_proportion)
+            X_batch = self.X[batch_indices]
+            Y_batch = self.Y[batch_indices]
+            # X_sample = X_batch[sample_indices]
+            Y_sample = Y_batch[sample_indices]
+            N_f = len(batch_indices)
+            N_c = len(sample_indices)
+
+            # Calculate pi matrix
+            pi = KernelFlowsPJAX.pi_matrix(sample_indices, (sample_indices.shape[0], X_batch.shape[0]))   
+
+            # NOTE: Number of forward passes = No_parameters + 1 per iteration!
+            # For every parameter with torch.no_grad()
+                # get rho(w_i + dw/2) rho = self.rho(...) This can be changed to forward or backward differences as well
+                # get rho(w_i - dw/2) rho = self.rho(...) This can be changed to forward or backward differences as well
+                # d(rho)/dw_i = (rho(w_i + dw/2) - rho(w_i - dw/2)) / dw
+            # Apply update step in the end
+            rho = self._rho_fd(X_batch=X_batch, Y_batch=Y_batch, Y_sample=Y_sample, 
+                        pi_matrix=pi, params=[sigma_w, sigma_b])
+            self.rho_values.append(rho)
+            # Applying finite difference
+            rho_dw = self._rho_fd(X_batch=X_batch, Y_batch=Y_batch, Y_sample=Y_sample, 
+                        pi_matrix=pi, params=[sigma_w + h, sigma_b])
+            rho_db = self._rho_fd(X_batch=X_batch, Y_batch=Y_batch, Y_sample=Y_sample, 
+                        pi_matrix=pi, params=[sigma_w, sigma_b + h])
+            drho_dw = (rho_dw - rho) / h
+            drho_db = (rho_db - rho) / h
+            sigma_b -= self.learning_rate*drho_db
+            sigma_w -= self.learning_rate*drho_dw
+
+        self.optimized_kernel = self.make_kernel(sigma_w, sigma_b)
+        return self.rho_values

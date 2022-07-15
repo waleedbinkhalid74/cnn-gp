@@ -60,7 +60,7 @@ if __name__ == '__main__':
     X_train, Y_train, X_test, Y_test = get_flat_mnist()
     N_i_arr = [100, 250, 500, 750, 1000, 1250, 1500]
     rand_acc_matrix = []
-    for i in range(3):   
+    for i in range(5):   
         rand_acc = []
         kernel_fn = get_kernel(3)
         for N_i in tqdm(N_i_arr):
@@ -77,7 +77,7 @@ if __name__ == '__main__':
     parameter_bounds = [(0.25, 100.0), (0.0, 100)]
     KF_JAX = KernelFlowsPJAX(kernel_layers=3, kernel_output_dim=10)
     bo_res = KF_JAX.fit_bayesian_optimization(X=X_train, Y=Y_train, batch_size=1200, 
-                                                iterations=30, random_starts=15, 
+                                                iterations=50, random_starts=15, 
                                                 parameter_bounds_BO=parameter_bounds)
     fig, ax = plt.subplots(1,1)
     plot_convergence(bo_res, ax=ax)

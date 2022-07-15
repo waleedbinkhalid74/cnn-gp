@@ -15,7 +15,7 @@ debugger.py
 __pycache__/
 *.py[cod]
 *$py.class
-
+test.py
 # C extensions
 *.so
 
