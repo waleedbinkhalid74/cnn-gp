@@ -5,14 +5,28 @@ import numpy as np
 from jax import jit, value_and_grad , random
 from skopt import gp_minimize
 from tqdm import tqdm
-import jax
+from scipy.optimize import OptimizeResult
 from neural_tangents import stax
 from KernelFlow.JAX.KF_base import KernelFlowsJAXBase
 
 class KernelFlowsPJAX(KernelFlowsJAXBase):
-    def __init__(self, kernel_layers, kernel_activation = 'relu', kernel_output_dim = 1, lr: float = 0.1,
-                 beta: float = 0.9, regularization_lambda: float = 0.00001,
+    """This class is used to represent the Parametric Kernel Flows on NNGPs using the JAX library. This currently only supports classification tasks.
+
+    Args:
+        KernelFlowsJAXBase: Base class of parameteric Kernel Flows using JAX
+    """
+    def __init__(self, kernel_layers: int, kernel_activation: str = 'relu', kernel_output_dim: int = 1, lr: float = 0.1,
+                 regularization_lambda: float = 0.00001,
                  reduction_constant: float = 0.0) -> None:
+        """Initializes the kernel flows algorithm with user hyper parameter provided settings
+
+        Args:
+            kernel_layers (int): Number of layers in the Dense NNGP kernel
+            kernel_activation (str, optional): Activation used in the NNGP kernel. Defaults to 'relu'.
+            kernel_output_dim (int, optional): Output dimension of the NN that represents the GP kernel. Defaults to 1.
+            lr (float, optional): Learning rate used in gradient based optimization. Defaults to 0.1.
+            regularization_lambda (float, optional): Regularization coefficient. Defaults to 0.00001.
+        """
 
         super().__init__()
         self.kernel_layers = kernel_layers
@@ -28,13 +42,21 @@ class KernelFlowsPJAX(KernelFlowsJAXBase):
         self.grad_hist = []
         self.para_hist = []
         self.learning_rate = lr
-        self.beta = beta
-        self.reduction_constant = reduction_constant
         self.regularization_lambda = regularization_lambda
         self.sigma_w = []
         self.sigma_b = []
 
-    def make_kernel(self, W_std, b_std):
+    def make_kernel(self, W_std: float, b_std: float):
+        """Constructs an NNGP kernel with the weight and bias standard deviation as provided by the user. The number of layers and the hidden layers
+        are the same as initialized by the user in the constructor
+
+        Args:
+            W_std (float): Standard deviation of weights
+            b_std (float): Standard deviation of biases
+
+        Returns:
+            Callable dense NNGP kernel
+        """
         layers = []
         for i in range(self.kernel_layers - 1):
             layers += [stax.Dense(25, W_std=W_std, b_std=b_std), self.kernel_activation]
@@ -44,7 +66,17 @@ class KernelFlowsPJAX(KernelFlowsJAXBase):
         kernel_fn = jit(kernel_fn, static_argnums=(2,))
         return kernel_fn
 
-    def _rho_bo(self, batch_size, sample_proportion, params, store_rho: bool = True):
+    def _rho_bo(self, batch_size: int, sample_proportion: float, params: list) -> float:
+        """Method to evaluate rho for the bayesian optimization step
+
+        Args:
+            batch_size (int): Batch size to select iid randomly for kernel flows
+            sample_proportion (float): Sample proportion to select iid randomly from batch
+            params (list): List containing tuples with the search range of each parameter used in bayesian optimization
+
+        Returns:
+            float: evaluted rho
+        """
         sample_indices, batch_indices = KernelFlowsPJAX.batch_creation(dataset_size= self.X.shape[0],
                                                                 batch_size= batch_size,
                                                                 sample_proportion= sample_proportion)
@@ -83,10 +115,31 @@ class KernelFlowsPJAX(KernelFlowsJAXBase):
         if rho_val <= 0.0:
             print("Warning, rho < 0. Setting to 1.")
             rho_val = 1.0
+        # TODO: Check for accuracy
+        eps = 1e-1
+        min_rho = np.min(self.rho_values) if len(self.rho_values) > 0.0 else 0.0
+        if rho_val < min_rho:
+            rho_counter_check = self._rho_bo(batch_size=batch_size, sample_proportion=sample_proportion, params=params)
+            if rho_counter_check > rho_val + eps:
+                print("Value of rho was not stable, setting to 1.")
+                rho_val = 1
+        self.rho_values.append(rho_val)
         return rho_val
 
     def _rho_fd(self, X_batch: np.ndarray, Y_batch: np.ndarray,
-            Y_sample: np.ndarray, pi_matrix: np.ndarray, params: list):
+            Y_sample: np.ndarray, pi_matrix: np.ndarray, params: list) -> float:
+        """Evaluates the value of rho for the finite difference optimization method
+
+        Args:
+            X_batch (np.ndarray): Batch points selected from entire dataset by iid random sampling
+            Y_batch (np.ndarray): Targets of batch points
+            Y_sample (np.ndarray): Samples selected from the batch by iid random sampling
+            pi_matrix (np.ndarray): pi matrix representing the delta matrix of which points from the batch were selected in the sample
+            params (list): parameters of the NNGP kernel. First param is the standard deviation of the weight and second is the standard deviation of the bias.
+
+        Returns:
+            float: evaluated rho
+        """
 
         # Set the parameters of the kernel
         kernel_fn = self.make_kernel(params[0], params[1])
@@ -104,9 +157,23 @@ class KernelFlowsPJAX(KernelFlowsJAXBase):
             # rho_val = 1.0
         return rho_val
 
-    def fit_bayesian_optimization(self, X, Y, iterations: int , batch_size: int = False,
+    def fit_bayesian_optimization(self, X: np.ndarray, Y: np.ndarray, iterations: int , batch_size: int = False,
                                    sample_proportion: float = 0.5, parameter_bounds_BO: list= None, 
-                                   random_starts: int = 15):
+                                   random_starts: int = 15) -> OptimizeResult:
+        """Applies the parameteric kernel flows algorithm on NNGPs using Bayesian Optimization as the optimization technique
+
+        Args:
+            X (np.ndarray): Training dataset
+            Y (np.ndarray): Targets of training dataset
+            iterations (int): Number of iterations to execute the kernel flows algorithm
+            batch_size (int, optional): Size of the batch to select randomly iid from the training dataset. Defaults to False.
+            sample_proportion (float, optional): Proportion of the batch to select randomly iid to form the sample. Defaults to 0.5.
+            parameter_bounds_BO (list, optional): The range to search for optimized parameters given as a list of tuples. Defaults to None.
+            random_starts (int, optional): Number of random starts before the acquisition function is used to calculate the next evaluation point. Defaults to 15.
+
+        Returns:
+            OptimizeResult: Object containing the optimization result and meta data
+        """
         self.X = X
         self.Y = Y
         rho_objective = partial(self._rho_bo, batch_size, sample_proportion)
@@ -129,9 +196,24 @@ class KernelFlowsPJAX(KernelFlowsJAXBase):
         self.optimized_kernel = self.make_kernel(bo_result.x[0], bo_result.x[1])
         return bo_result
     
-    def fit_finite_difference(self, X, Y, iterations: int , init_sigma_w: float, init_sigma_b: float,
+    def fit_finite_difference(self, X: np.ndarray, Y: np.ndarray, iterations: int , init_sigma_w: float, init_sigma_b: float,
                                 batch_size: int = False, sample_proportion: float = 0.5, 
-                                h: float = 1e-4):
+                                h: float = 1e-4) -> list:
+        """Applies the parameteric kernel flows algorithm on NNGPs using finite difference to approximate the gradient and then applies gradient based optimization.
+
+        Args:
+            X (np.ndarray): Training dataset
+            Y (np.ndarray): Targets of training dataset
+            iterations (int): Number of iterations to execute the kernel flows algorithm
+            batch_size (int, optional): Size of the batch to select randomly iid from the training dataset. Defaults to False.
+            sample_proportion (float, optional): Proportion of the batch to select randomly iid to form the sample. Defaults to 0.5.
+            init_sigma_w (float): initial value of the variance of weights
+            init_sigma_b (float): initial value of the variance of biases
+            h (float, optional): Perturbation used in the forward difference approximation of gradients. Defaults to 1e-4.
+
+        Returns:
+            list: rho values
+        """
         self.X = X
         self.Y = Y
         sigma_w = init_sigma_w

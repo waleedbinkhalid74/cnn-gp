@@ -152,7 +152,7 @@ class KernelFlowsNPJAX():
         Args:
             X_train (jax.numpy.ndarray): Training dataset
             X_test (jax.numpy.ndarray): Testing dataset
-            Y_train (jax.numpy.ndarray): Training dataset targets
+            Y_train (jax.numpy.ndarray): Training dataset targets as one hot encoding incase of classification tasks
 
         Returns:
             jax.numpy.ndarray: Predicted Testing dataset targets

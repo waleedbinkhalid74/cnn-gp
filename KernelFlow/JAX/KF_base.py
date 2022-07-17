@@ -93,6 +93,18 @@ class KernelFlowsJAXBase():
     
     @staticmethod
     def kernel_regression(kernel,  X_train: jax.numpy.ndarray, X_test: jax.numpy.ndarray, Y_train: jax.numpy.ndarray, regularization_lambda = 0.00001) -> jax.numpy.ndarray:
+        """Performs kernel ridge regression on given data
+
+        Args:
+            kernel: Callable kernel function / object
+            X_train (jax.numpy.ndarray): Training datapoints
+            X_test (jax.numpy.ndarray): Test datapoints
+            Y_train (jax.numpy.ndarray): Targets of training datapoints
+            regularization_lambda (float, optional): Regularization coefficient. Defaults to 0.00001.
+
+        Returns:
+            jax.numpy.ndarray: Resulting prediction
+        """
         # The data matrix (theta in the original paper)
         k_matrix = kernel(X_train, X_train, 'nngp')
         k_matrix += regularization_lambda * np.identity(k_matrix.shape[0])
