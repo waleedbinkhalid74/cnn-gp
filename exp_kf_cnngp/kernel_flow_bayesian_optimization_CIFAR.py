@@ -1,4 +1,6 @@
-import copy
+"""
+This script tests the parameteric kernel flows algorithm using bayesian optimization for CNNGPs on the CIFAR dataset
+"""
 import torch
 import numpy as np
 import matplotlib.pyplot as plt
@@ -59,7 +61,7 @@ def main(_):
     plot_convergence(res, ax=ax)
     ax.set_ylim((0,1))
     plt.show()
-    # fig.savefig('./figs/bayesian_optimization_convergence_' + FLAGS.CNNGP_model + "_" + FLAGS.dataset + '.png')
+    fig.savefig('./figs/bayesian_optimization_convergence_' + FLAGS.CNNGP_model + "_" + FLAGS.dataset + '.png')
 
     bo_acc = []
     for N_i in tqdm(N_i_arr):
@@ -82,9 +84,14 @@ def main(_):
     plt.yticks(np.arange(0, 101, 5.0))
     plt.legend()
     plt.show()
-    # fig.savefig('./figs/bayesian_optimization_accuracy_' + FLAGS.CNNGP_model + "_" + FLAGS.dataset + '.png')
+    fig.savefig('./figs/bayesian_optimization_accuracy_' + FLAGS.CNNGP_model + "_" + FLAGS.dataset + '.png')
 
 if __name__ == '__main__':
+    """Flags can be changed as follows:
+    For CNNGP model: simple, convnet, convnet_cifar, simple_cifar (models with cifar in their name only work for CIFAR-10 dataset. Rest only work for MNIST) 
+                    --> Other models can be added by adding the relevant architecture to the kernel_flow_configs.py file
+    For Data: mnist, cifar --> Other datasets can also be added by editing the kernel_flow_configs.py file.
+    """
     f = absl.app.flags
     f.DEFINE_string("CNNGP_model", "convnet_cifar",
                     "which CNNGP model to test on. For random convnet use convnet. For convnet from Alonso et al use alonso_etal_convnet. For simple model use simple.")

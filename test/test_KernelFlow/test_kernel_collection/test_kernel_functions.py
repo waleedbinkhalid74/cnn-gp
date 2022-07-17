@@ -22,11 +22,11 @@ def test_rbf():
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
     dataiter = iter(trainloader)
-    X_train, Y_train = dataiter.next()
+    X_train, Y_train = next(dataiter)
     Y_train = F.one_hot(Y_train, 10)
 
     dataiter_val = iter(valloader)
-    X_test, Y_test = dataiter_val.next()
+    X_test, Y_test = next(dataiter_val)
 
     kernel_control = kernel_RBF(matrix_1=torch.flatten(X_train, 1, -1).detach().numpy().squeeze(),
                             matrix_2=torch.flatten(X_train, 1, -1).detach().numpy().squeeze(),

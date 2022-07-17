@@ -1,3 +1,6 @@
+"""
+This script demonstrates the differences that arise when kernel ridge regression on the CPU vs on the GPU under different precision settings on pytorch.
+"""
 import copy
 import torch
 import numpy as np
@@ -94,6 +97,11 @@ def main(_):
     fig.savefig('./figs/finite_difference_accuracy_' + FLAGS.CNNGP_model + "_" + FLAGS.dataset + '.png')
 
 if __name__ == '__main__':
+    """Flags can be changed as follows:
+    For CNNGP model: simple, convnet, convnet_cifar, simple_cifar (models with cifar in their name only work for CIFAR-10 dataset. Rest only work for MNIST) 
+                    --> Other models can be added by adding the relevant architecture to the kernel_flow_configs.py file
+    For Data: mnist, cifar --> Other datasets can also be added by editing the kernel_flow_configs.py file.
+    """
     f = absl.app.flags
     f.DEFINE_string("CNNGP_model", "convnet_cifar",
                     "which CNNGP model to test on. For random convnet use convnet. For Convnet from Alonso et al use alonso_etal_convnet. For simple model use simple.")

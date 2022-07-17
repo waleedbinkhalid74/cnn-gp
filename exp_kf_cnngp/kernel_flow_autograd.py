@@ -1,3 +1,6 @@
+"""
+This script tests the parameteric kernel flows algorithm using gradient based optimization with the automatic differenciation engine of pytorch for CNNGPs
+"""
 import time
 import torch
 import numpy as np
@@ -36,10 +39,6 @@ def main(_):
 
         Y_predictions_rand_cnngp_labels = get_label_from_probability(Y_predictions_rand_cnngp)
         rand_acc.append(accuracy_score(Y_predictions_rand_cnngp_labels, Y_test.cpu().numpy()) * 100)
-
-    # plt.plot(rand_acc)
-    # plt.ylim((0,100))
-    # plt.show()
 
     KF_autograd = KernelFlowsTorch(cnn_gp, device=DEVICE, regularization_lambda=1e-4)
     iteration_count = 1000
@@ -85,6 +84,11 @@ def main(_):
     # fig.savefig('./figs/autograd_accuracy_' + FLAGS.CNNGP_model + "_" + FLAGS.dataset + '.png')
 
 if __name__ == '__main__':
+    """Flags can be changed as follows:
+    For CNNGP model: simple, convnet, convnet_cifar, simple_cifar (models with cifar in their name only work for CIFAR-10 dataset. Rest only work for MNIST) 
+                    --> Other models can be added by adding the relevant architecture to the kernel_flow_configs.py file
+    For Data: mnist, cifar --> Other datasets can also be added by editing the kernel_flow_configs.py file.
+    """
     f = absl.app.flags
     f.DEFINE_string("CNNGP_model", "simple",
                     "which CNNGP model to test on")

@@ -1,3 +1,6 @@
+"""
+This script demonstrates the differences that arise when kernel ridge regression on the CPU vs on the GPU under different precision settings on pytorch.
+"""
 import copy
 import torch
 import numpy as np

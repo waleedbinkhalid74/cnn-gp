@@ -1,3 +1,6 @@
+"""
+This script demonstrates the differences that arise when performing matrix multiplication on the CPU vs on the GPU under different precision settings on pytorch.
+"""
 import torch
 import numpy as np
 from tqdm import tqdm

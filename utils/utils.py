@@ -14,6 +14,18 @@ class tqdm_skopt(object):
         self._bar.update(1)
 
 def get_dataset(dataset:str, train_size: int, val_size: int, shuffle: bool = True, device: str = 'cpu')-> Union[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    """Get the dataset specified by the user
+
+    Args:
+        dataset (str): name of the dataset --> 'cifar', 'mnist'
+        train_size (int): Training size
+        val_size (int): Validation size
+        shuffle (bool, optional): Flag to shuffle the data. Defaults to True.
+        device (str, optional): If the data is to be ported to the GPU or should it remain on the CPU. Defaults to 'cpu'.
+
+    Returns:
+        Union[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]: Traing dataset, Train dataset targets, Test dataset, Test dataset targets
+    """
     if dataset == 'mnist':
         return get_MNIST_dataset(train_size=train_size, val_size=val_size, shuffle=shuffle, device=device)
     elif dataset == 'cifar':
@@ -42,13 +54,13 @@ def get_CIFAR_dataset(train_size: int, val_size: int, shuffle: bool = True, devi
     valloader = torch.utils.data.DataLoader(valset, batch_size=val_size, shuffle=shuffle)
 
     dataiter = iter(trainloader)
-    X_train, Y_train = dataiter.next()
+    X_train, Y_train = next(dataiter)
     X_train = X_train.to(device)
     Y_train = Y_train.to(device)
     Y_train = F.one_hot(Y_train, 10).to(torch.float32)
 
     dataiter_val = iter(valloader)
-    X_test, Y_test = dataiter_val.next()
+    X_test, Y_test = next(dataiter_val)
     X_test = X_test.to(device)
     Y_test = Y_test.to(device)
 
@@ -77,13 +89,13 @@ def get_MNIST_dataset(train_size: int, val_size: int, shuffle: bool = True, devi
     valloader = torch.utils.data.DataLoader(valset, batch_size=val_size, shuffle=shuffle)
 
     dataiter = iter(trainloader)
-    X_train, Y_train = dataiter.next()
+    X_train, Y_train = next(dataiter)
     X_train = X_train.to(device)
     Y_train = Y_train.to(device)
     Y_train = F.one_hot(Y_train, 10).to(torch.float32)
 
     dataiter_val = iter(valloader)
-    X_test, Y_test = dataiter_val.next()
+    X_test, Y_test = next(dataiter_val)
     X_test = X_test.to(device)
     Y_test = Y_test.to(device)
 
