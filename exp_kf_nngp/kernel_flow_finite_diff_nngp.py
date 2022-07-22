@@ -14,7 +14,7 @@ if __name__ == '__main__':
 
     rand_acc_matrix = []
     best_mean_acc = 100.0
-    for i in range(3):   
+    for i in range(5):   
         rand_acc = []
         w_std = np.random.rand()*100
         b_std = np.random.rand()*100
@@ -38,14 +38,14 @@ if __name__ == '__main__':
     rand_max = rand_acc_matrix.max(axis=0)
 
     KF_JAX = KernelFlowsPJAX(kernel_layers=3, kernel_output_dim=10)
-    rho_values = KF_JAX.fit_finite_difference(X=X_train, Y=Y_train, batch_size=600, iterations=1000,
+    rho_values = KF_JAX.fit_finite_difference(X=X_train, Y=Y_train, batch_size=600, iterations=1,
                                             init_sigma_w=sigma_w, init_sigma_b=sigma_b)
     fig, ax = plt.subplots(1,1)
     ax.plot(rho_values)
     ax.set_xlabel("Iterations")
     ax.set_ylabel("$\\rho$")
-    m, b = np.polyfit(np.arange(0, len(rho_values)), rho_values, 1)
-    ax.plot(np.arange(0, len(rho_values)), m*np.arange(0, len(rho_values)) + b, label=f"""Best fit line: y = {m:.6f}x + {b:.2f}""")
+    # m, b = np.polyfit(np.arange(0, len(rho_values)), rho_values, 1)
+    # ax.plot(np.arange(0, len(rho_values)), m*np.arange(0, len(rho_values)) + b, label=f"""Best fit line: y = {m:.6f}x + {b:.2f}""")
     ax.set_ylim((0, 1))
     plt.legend()
     fig.savefig('figs/nngp_parametric_kf_finitediff_convergence.png')

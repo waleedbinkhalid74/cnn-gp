@@ -27,7 +27,7 @@ def pi_matrix(sample_indices, dimension):
     return pi
 
 # The rho function
-def rho(parameters, matrix_data, Y_data, sample_indices,  kernel_keyword= "RBF"):
+def rho(parameters, matrix_data, Y_data, sample_indices,  kernel_keyword= "RBF", regularization=1e-5):
     kernel = kernels_dic[kernel_keyword]    
     kernel_matrix = kernel(matrix_data, matrix_data, parameters)
     
@@ -37,12 +37,16 @@ def rho(parameters, matrix_data, Y_data, sample_indices,  kernel_keyword= "RBF")
     
     Y_sample = Y_data[sample_indices]
     
-    lambda_term = 0.000001
-    inverse_data = np.linalg.inv(kernel_matrix + lambda_term * np.identity(kernel_matrix.shape[0]))
-    inverse_sample = np.linalg.inv(sample_matrix + lambda_term * np.identity(sample_matrix.shape[0]))
+    lambda_term = regularization
+    # inverse_data = np.linalg.inv(kernel_matrix + lambda_term * np.identity(kernel_matrix.shape[0]))
+    inverse_data_Y_data = np.linalg.lstsq(kernel_matrix + lambda_term * np.identity(kernel_matrix.shape[0]), Y_data, rcond=1e-6)[0]
+    # inverse_sample = np.linalg.inv(sample_matrix + lambda_term * np.identity(sample_matrix.shape[0]))
+    inverse_sample_Y_sample = np.linalg.lstsq(sample_matrix + lambda_term * np.identity(sample_matrix.shape[0]), Y_sample, rcond=1e-6)[0]
     
-    top = np.dot(Y_sample, np.matmul(inverse_sample, Y_sample))
-    bottom = np.dot(Y_data, np.matmul(inverse_data, Y_data))
+    # top = np.dot(Y_sample, np.matmul(inverse_sample, Y_sample))
+    # bottom = np.dot(Y_data, np.matmul(inverse_data, Y_data))
+    top = np.dot(Y_sample, inverse_sample_Y_sample)
+    bottom = np.dot(Y_data, inverse_data_Y_data)
     
     return 1 - top/bottom
 
@@ -59,26 +63,32 @@ def frechet(parameters, X, Y, sample_indices, kernel_keyword = "RBF", regu_lambd
     
     # Computing the Kernel matrix Inverses
     sample_matrix = np.matmul(pi, np.matmul(batch_matrix, np.transpose(pi)))
-    batch_inv = np.linalg.inv(batch_matrix + lambda_term * np.identity(batch_matrix.shape[0]))
-    sample_inv = np.linalg.inv(sample_matrix + lambda_term * np.identity(sample_matrix.shape[0]))
-    
+    # sample_inv = np.linalg.inv(sample_matrix + lambda_term * np.identity(sample_matrix.shape[0]))
+    # batch_inv = np.linalg.inv(batch_matrix + lambda_term * np.identity(batch_matrix.shape[0]))
+    sample_inv_Y_sample = np.linalg.lstsq(sample_matrix + lambda_term * np.identity(sample_matrix.shape[0]), Y_sample, rcond=1e-6)[0]
+    batch_inv_Y = np.linalg.lstsq(batch_matrix + lambda_term * np.identity(batch_matrix.shape[0]), Y, rcond=1e-6)[0]
     
     # Computing the top and bottom terms
-    top = np.matmul(np.transpose(Y_sample), np.matmul(sample_inv, Y_sample))
-    bottom = np.matmul(np.transpose(Y), np.matmul(batch_inv, Y))
+    # top = np.matmul(np.transpose(Y_sample), np.matmul(sample_inv, Y_sample))
+    # bottom = np.matmul(np.transpose(Y), np.matmul(batch_inv, Y))
+    top = np.matmul(np.transpose(Y_sample), sample_inv_Y_sample)
+    bottom = np.matmul(np.transpose(Y), batch_inv_Y)
+    
+    sample_inv_pi_Y = np.linalg.lstsq(sample_matrix + lambda_term * np.identity(sample_matrix.shape[0]), np.matmul(pi, Y), rcond=1e-6)[0]
     
     # Computing z_hat and y_hat (see original paper)
-    Z_hat = np.matmul(np.transpose(pi), np.matmul(sample_inv, np.matmul(pi, Y)))
-    Y_hat = np.matmul(batch_inv, Y)
+    # Z_hat = np.matmul(np.transpose(pi), np.matmul(sample_inv, np.matmul(pi, Y)))
+    # Y_hat = np.matmul(batch_inv, Y)
+    Z_hat = np.matmul(np.transpose(pi), sample_inv_pi_Y)
+    Y_hat = batch_inv_Y
     #Computing rho   
-    rho = 1- (top)/(bottom)
-    
+    rho = 1- top/bottom
     # Computing the Frechet derivative
     K_y = np.squeeze(np.matmul(derivative_matrix, Y_hat), axis = 2)
     K_z = np.squeeze(np.matmul(derivative_matrix, Z_hat), axis = 2)
     
     g = 2*((1-rho)* Y_hat * K_y - Z_hat * K_z) 
-    g = g/(bottom)
+    g = g/bottom
     return g, rho
 
 #%%
@@ -137,7 +147,7 @@ def kernel_regression(X_train, X_test, Y_train, param, kernel_keyword = "RBF", r
     t_matrix = kernel(X_test, X_train, param)
     
     # Regression coefficients in feature space
-    coeff, _, _, _ = np.linalg.lstsq(k_matrix, Y_train, rcond=1e-8)
+    coeff, _, _, _ = np.linalg.lstsq(k_matrix, Y_train, rcond=1e-6)
     # coeff = np.matmul(np.linalg.inv(k_matrix), Y_train)
     
     prediction = np.matmul(t_matrix, coeff)
@@ -153,7 +163,7 @@ def kernel_regression_coeff(X_train, X_test, Y_train, param, kernel_keyword = "R
     
     # Regression coefficients in feature space
     # coeff = np.matmul(np.linalg.inv(k_matrix), Y_train)
-    coeff, _, _, _ = np.linalg.lstsq(k_matrix, Y_train, rcond=1e-8)
+    coeff, _, _, _ = np.linalg.lstsq(k_matrix, Y_train, rcond=1e-6)
 
     return coeff
     
@@ -191,18 +201,17 @@ class KernelFlowsNP_ODE():
         self.coeff = []
         self.points_hist = []
         self.batch_hist = []
-        self.epsilon = []
         self.perturbation = []
-    
-    def G(self, t: list, X: np.ndarray, Y: np.ndarray, X_batch: np.ndarray, Y_batch: np.ndarray, batch_indices: np.ndarray, sample_indices: np.ndarray, not_batch: np.ndarray) -> np.ndarray:
+        self.X_norm = []
+
+
+    def G(self, t: list, X: np.ndarray, Y: np.ndarray, batch_indices: np.ndarray, sample_indices: np.ndarray, not_batch: np.ndarray) -> np.ndarray:
         """A callable function that calculates the perturbation using the Frechet derivative of rho. The function can be used as a callable in the ODE solver provided by python.
 
         Args:
             t (list): Tiem interval to integrate the ODE on
             X (np.ndarray): X dataset
             Y (np.ndarray): Y target of dataset
-            X_batch (np.ndarray): Batch selected randomly without replacement
-            Y_batch (np.ndarray): Targets of batch selected randomly without replacement
             batch_indices (np.ndarray): Batch indices
             sample_indices (np.ndarray): Sample indices selected from batch randomly without replacement
             not_batch (np.ndarray): Indices not part of the batch
@@ -212,16 +221,30 @@ class KernelFlowsNP_ODE():
         """
 
         X = np.reshape(X, (Y.shape[0], X.shape[0] // Y.shape[0]))
+        X_norm = np.linalg.norm(X)
+        # print(X_norm)
+        self.X_norm.append(X_norm)
+        X_batch = X[batch_indices]
+        Y_batch = Y[batch_indices]
+
         g, rho = frechet(self.parameters, X_batch, Y_batch, sample_indices, kernel_keyword = self.kernel_keyword, regu_lambda=self.regularization_lambda)
+        self.rho_values.append(rho)
+
         if rho >1 or rho <0:
             print ("Rho outside allowed bounds", rho)
         g_interpolate, coeff = kernel_regression(X_batch, X[not_batch], g, self.parameters, self.kernel_keyword, regu_lambda = self.regularization_lambda)
         perturbation = np.zeros(X.shape)
         perturbation[batch_indices] = g
         perturbation[not_batch] = g_interpolate
-
+        self.coeff.append(np.copy(coeff))
+        self.perturbation.append(np.copy(perturbation))
+        
+        self.rho_values.append(rho.item())
         return perturbation.ravel()
 
+    def G_flow_transform(self, X_test):
+        pass
+    
     def fit(self, X: np.ndarray, Y: np.ndarray, iterations: int, batch_size: int, learning_rate:float = 0.1, type_epsilon: str = "relative", record_hist: bool = True, reg: float = 0.000001) -> np.ndarray:
         """Fit method to optimize a given kernel using non-parametric kernel flows using an ODE solver step for the updating of the datapoints
 
@@ -260,11 +283,13 @@ class KernelFlowsNP_ODE():
         for i in tqdm(range(iterations)):      
             # X = X.reshape(-1,1)
             sample_indices, batch_indices = batch_creation(X, batch_size)
-            X_batch = X[batch_indices]
-            Y_batch = Y[batch_indices]
+            # X_batch = X[batch_indices]
+            # Y_batch = Y[batch_indices]
             # The indices of all the elements not in the batch
             not_batch = np.setdiff1d(data_set_ind, batch_indices)
-            solution = integrate.solve_ivp(self.G, [0, 1],  X.ravel(), args=(Y, X_batch, Y_batch, batch_indices, sample_indices, not_batch), method='RK45')#, max_step=0.01) # Also tried Radau
+            solution = integrate.solve_ivp(self.G, [0, 2.0],  X.ravel(), args=(Y, batch_indices, sample_indices, not_batch), method='Radau')#, max_step=0.01) # Also tried Radau
+            # self.X_norm.append(10)
+            # print("Iter done")
             X = solution.y[:,-1]
             X = np.reshape(X, (Y.shape[0], X.shape[0] // Y.shape[0]))
         ############################################################################################################
@@ -292,7 +317,7 @@ class KernelFlowsNP_ODE():
             # Recording the regression coefficients
             # self.coeff.append(np.copy(coeff))
             # Update the history
-            self.batch_hist.append(np.copy(X_batch))
+            # self.batch_hist.append(np.copy(X_batch))
             
             if record_hist == True:
                 self.points_hist.append(np.copy(X))

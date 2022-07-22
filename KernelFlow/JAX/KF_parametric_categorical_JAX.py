@@ -255,5 +255,8 @@ class KernelFlowsPJAX(KernelFlowsJAXBase):
             sigma_b -= self.learning_rate*drho_db
             sigma_w -= self.learning_rate*drho_dw
 
+        self.sigma_w.append(sigma_w)
+        self.sigma_b.append(sigma_b)
+
         self.optimized_kernel = self.make_kernel(sigma_w, sigma_b)
         return self.rho_values
