@@ -14,7 +14,7 @@ from .nabla_functions import nabla_dic
 
 #%%
 
-default_lambda = 1e-5
+default_lambda = 1e-6
 
 # The pi or selection matrix
 def pi_matrix(sample_indices, dimension):

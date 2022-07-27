@@ -63,24 +63,24 @@ def frechet(parameters, X, Y, sample_indices, kernel_keyword = "RBF", regu_lambd
     
     # Computing the Kernel matrix Inverses
     sample_matrix = np.matmul(pi, np.matmul(batch_matrix, np.transpose(pi)))
-    # sample_inv = np.linalg.inv(sample_matrix + lambda_term * np.identity(sample_matrix.shape[0]))
-    # batch_inv = np.linalg.inv(batch_matrix + lambda_term * np.identity(batch_matrix.shape[0]))
-    sample_inv_Y_sample = np.linalg.lstsq(sample_matrix + lambda_term * np.identity(sample_matrix.shape[0]), Y_sample, rcond=1e-6)[0]
-    batch_inv_Y = np.linalg.lstsq(batch_matrix + lambda_term * np.identity(batch_matrix.shape[0]), Y, rcond=1e-6)[0]
+    sample_inv = np.linalg.inv(sample_matrix + lambda_term * np.identity(sample_matrix.shape[0]))
+    batch_inv = np.linalg.inv(batch_matrix + lambda_term * np.identity(batch_matrix.shape[0]))
+    # sample_inv_Y_sample = np.linalg.lstsq(sample_matrix + lambda_term * np.identity(sample_matrix.shape[0]), Y_sample, rcond=1e-6)[0]
+    # batch_inv_Y = np.linalg.lstsq(batch_matrix + lambda_term * np.identity(batch_matrix.shape[0]), Y, rcond=1e-6)[0]
     
     # Computing the top and bottom terms
-    # top = np.matmul(np.transpose(Y_sample), np.matmul(sample_inv, Y_sample))
-    # bottom = np.matmul(np.transpose(Y), np.matmul(batch_inv, Y))
-    top = np.matmul(np.transpose(Y_sample), sample_inv_Y_sample)
-    bottom = np.matmul(np.transpose(Y), batch_inv_Y)
+    top = np.matmul(np.transpose(Y_sample), np.matmul(sample_inv, Y_sample))
+    bottom = np.matmul(np.transpose(Y), np.matmul(batch_inv, Y))
+    # top = np.matmul(np.transpose(Y_sample), sample_inv_Y_sample)
+    # bottom = np.matmul(np.transpose(Y), batch_inv_Y)
     
-    sample_inv_pi_Y = np.linalg.lstsq(sample_matrix + lambda_term * np.identity(sample_matrix.shape[0]), np.matmul(pi, Y), rcond=1e-6)[0]
+    # sample_inv_pi_Y = np.linalg.lstsq(sample_matrix + lambda_term * np.identity(sample_matrix.shape[0]), np.matmul(pi, Y), rcond=1e-6)[0]
     
     # Computing z_hat and y_hat (see original paper)
-    # Z_hat = np.matmul(np.transpose(pi), np.matmul(sample_inv, np.matmul(pi, Y)))
-    # Y_hat = np.matmul(batch_inv, Y)
-    Z_hat = np.matmul(np.transpose(pi), sample_inv_pi_Y)
-    Y_hat = batch_inv_Y
+    Z_hat = np.matmul(np.transpose(pi), np.matmul(sample_inv, np.matmul(pi, Y)))
+    Y_hat = np.matmul(batch_inv, Y)
+    # Z_hat = np.matmul(np.transpose(pi), sample_inv_pi_Y)
+    # Y_hat = batch_inv_Y
     #Computing rho   
     rho = 1- top/bottom
     # Computing the Frechet derivative
@@ -198,14 +198,17 @@ class KernelFlowsNP_ODE():
         
         # Lists that keep track of the history of the algorithm
         self.rho_values = []
-        self.coeff = []
         self.points_hist = []
         self.batch_hist = []
         self.perturbation = []
         self.X_norm = []
+        # Variables needed for flow transform --> This is a rough implementation geared towards experimentation
+        self.X_batch = {}
+        self.coeff = {}
+        self.g_batch = {}
+        self.counter = 0
 
-
-    def G(self, t: list, X: np.ndarray, Y: np.ndarray, batch_indices: np.ndarray, sample_indices: np.ndarray, not_batch: np.ndarray) -> np.ndarray:
+    def G(self, t: list, X: np.ndarray, Y: np.ndarray, batch_indices: np.ndarray, sample_indices: np.ndarray, not_batch: np.ndarray, iteration_nr: int) -> np.ndarray:
         """A callable function that calculates the perturbation using the Frechet derivative of rho. The function can be used as a callable in the ODE solver provided by python.
 
         Args:
@@ -227,7 +230,8 @@ class KernelFlowsNP_ODE():
         X_batch = X[batch_indices]
         Y_batch = Y[batch_indices]
 
-        g, rho = frechet(self.parameters, X_batch, Y_batch, sample_indices, kernel_keyword = self.kernel_keyword, regu_lambda=self.regularization_lambda)
+        
+        g, rho = frechet(self.parameters, X_batch, Y_batch, sample_indices, kernel_keyword = self.kernel_keyword)#, regu_lambda=self.regularization_lambda)
         self.rho_values.append(rho)
 
         if rho >1 or rho <0:
@@ -236,14 +240,34 @@ class KernelFlowsNP_ODE():
         perturbation = np.zeros(X.shape)
         perturbation[batch_indices] = g
         perturbation[not_batch] = g_interpolate
-        self.coeff.append(np.copy(coeff))
         self.perturbation.append(np.copy(perturbation))
-        
+
+        # Store batch and coefficients for transforming the test points later
+        if iteration_nr in self.coeff.keys():
+            self.coeff[iteration_nr].append(np.copy(coeff))
+            self.X_batch[iteration_nr].append(np.copy(X_batch))
+            # self.g_batch[iteration_nr].append(np.copy(g))
+        else:
+            self.coeff[iteration_nr] = [np.copy(coeff)]
+            self.X_batch[iteration_nr] = [np.copy(X_batch)]
+            # self.g_batch[iteration_nr] = [np.copy(g)]
+
         self.rho_values.append(rho.item())
         return perturbation.ravel()
 
-    def G_flow_transform(self, X_test):
-        pass
+    def G_flow_transform(self, t, X_test, iteration_nr):
+        # X_test = np.reshape(X_test, (X_test.shape[0], X_test.shape[0] // X_test.shape[0]))
+        # kernel = kernels_dic[self.kernel_keyword]
+        # test_matrix = kernel(X_test, self.X_batch[iteration_nr][self.counter], self.parameters)
+        # perturbation = np.matmul(test_matrix, self.coeff[iteration_nr][self.counter])
+        # self.counter += 1
+
+        X_test = np.reshape(X_test, (X_test.shape[0], X_test.shape[0] // X_test.shape[0]))
+        kernel = kernels_dic[self.kernel_keyword]
+        test_matrix = kernel(X_test, self.X_batch[iteration_nr][-1], self.parameters)
+        perturbation = np.matmul(test_matrix, self.coeff[iteration_nr][-1])
+
+        return perturbation.ravel()
     
     def fit(self, X: np.ndarray, Y: np.ndarray, iterations: int, batch_size: int, learning_rate:float = 0.1, type_epsilon: str = "relative", record_hist: bool = True, reg: float = 0.000001) -> np.ndarray:
         """Fit method to optimize a given kernel using non-parametric kernel flows using an ODE solver step for the updating of the datapoints
@@ -280,16 +304,11 @@ class KernelFlowsNP_ODE():
         
         self.X = np.copy(X)
         data_set_ind = np.arange(X.shape[0])
-        for i in tqdm(range(iterations)):      
-            # X = X.reshape(-1,1)
+        for i in tqdm(range(iterations)):
             sample_indices, batch_indices = batch_creation(X, batch_size)
-            # X_batch = X[batch_indices]
-            # Y_batch = Y[batch_indices]
             # The indices of all the elements not in the batch
             not_batch = np.setdiff1d(data_set_ind, batch_indices)
-            solution = integrate.solve_ivp(self.G, [0, 2.0],  X.ravel(), args=(Y, batch_indices, sample_indices, not_batch), method='Radau')#, max_step=0.01) # Also tried Radau
-            # self.X_norm.append(10)
-            # print("Iter done")
+            solution = integrate.solve_ivp(self.G, [0, 1.0],  X.ravel(), args=(Y, batch_indices, sample_indices, not_batch, i), method='RK45')#, max_step=0.01) # Also tried Radau
             X = solution.y[:,-1]
             X = np.reshape(X, (Y.shape[0], X.shape[0] // Y.shape[0]))
         ############################################################################################################
@@ -315,59 +334,40 @@ class KernelFlowsNP_ODE():
             ############################################################################################################
 
             # Recording the regression coefficients
-            # self.coeff.append(np.copy(coeff))
             # Update the history
-            # self.batch_hist.append(np.copy(X_batch))
             
-            if record_hist == True:
-                self.points_hist.append(np.copy(X))
+            # if record_hist == True:
+            self.points_hist.append(np.copy(X))
             
-        # # Convert all the lists to np arrays
-        # self.coeff = np.array(self.coeff)
-        # self.rho_values = np.array(self.rho_values)
         # self.points_hist = np.array(self.points_hist)
         # self.batch_hist = np.array(self.batch_hist)
-        # self.epsilon = np.array(self.epsilon)
         
         return X
                 
-    def flow_transform(self, X_test, iterations, show_it = 1000, epsilon_choice = "combination"):
-        kernel = kernels_dic[self.kernel_keyword]
-        X_test = np.copy(X_test)
-        
-        # Keeping track of the perturbations
-        self.test_history = []
-        self.test_history.append(X_test)
-        # First case: mini-batch was used, hence the regression coefficients have already been computed
-        for i in tqdm(range(iterations)):
-            # if i % show_it == 0:
-            #     print("Iterations: ", i)
-                
-            # Fetching the regression coefficients and the batch used
-            coeff = self.coeff[i]
-            X_batch = self.batch_hist[i]
-                
-                
-            # Computing the regression matrix
-            test_matrix= kernel(X_test, X_batch, self.parameters)
+    def flow_transform(self, X_test):
+
+        if isinstance(X_test, torch.Tensor):
+            X_test = X_test.numpy()
+            X_test = np.copy(X_test)
+
+        for i in tqdm(range(self.iteration)):
+            # solution = integrate.solve_ivp(self.G_flow_transform, [0, 2.0],  X_test.ravel(), args=(i,), method='Radau')#, max_step=0.01) # Also tried Radau
+            # self.counter = 0
+            # X_test = solution.y[:,-1]
+            # X_test = np.reshape(X_test, (X_test.shape[0], X_test.shape[0] // X_test.shape[0]))
+            perturbation = self.points_hist[i+1] - self.points_hist[i]
+            X_train = self.points_hist[i]
+
+            kernel = kernels_dic[self.kernel_keyword]
+            K_xx = kernel(X_train, X_train, self.parameters)
+            test_matrix = kernel(X_test, X_train, self.parameters)
+            # K_xx_Y = np.linalg.lstsq(K_xx, perturbation, rcond=default_lambda)[0]
+            # predict_perturbation = np.matmul(test_matrix, K_xx_Y)
             
-            # Prediction and perturbation
-            perturbation = np.dot(test_matrix, coeff)
+            predict_perturbation = np.matmul(test_matrix, np.matmul(np.linalg.inv(K_xx + default_lambda*np.eye(K_xx.shape[0])), perturbation))
             
-            if epsilon_choice == "historic":
-                epsilon = self.epsilon[i]
-            elif epsilon_choice == "new":
-                epsilon = compute_LR(self.LR, X_test, perturbation, type_epsilon = self.type_epsilon)
-            elif epsilon_choice == "combination":
-                epsilon_1 = self.epsilon[i]
-                epsilon_2 = compute_LR(self.LR, X_test, perturbation, type_epsilon = self.type_epsilon)
-                epsilon = min(epsilon_1, epsilon_2)
-            else:
-                print("Error epsilon type ")
-            X_test += epsilon * perturbation
-                
-            # Updating the test history
-            self.test_history.append(X_test)
+            X_test += predict_perturbation
+
         return X_test
     
     def predict(self, X_test, show_it = 1000, kernel_it = -1, epsilon_choice = "combination", regu = default_lambda):

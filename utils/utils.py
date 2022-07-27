@@ -1,9 +1,13 @@
+import os
 from typing import Union
 import torch
 from torchvision import datasets, transforms
 import torch.nn.functional as F
 from tqdm import tqdm
 import numpy as np
+import matplotlib.animation as animation
+import matplotlib.pyplot as plt
+from IPython.display import HTML
 
 class tqdm_skopt(object):
 
@@ -112,3 +116,21 @@ def get_label_from_probability(prediction_probability: torch.Tensor) -> torch.Te
     """
     prediction_labels = np.argmax(prediction_probability.cpu(), axis=1)
     return prediction_labels
+
+def animate_flow(list_of_points_x, y, filename= "myanim"):
+    fig = plt.figure()
+    ax =  fig.add_subplot()
+
+    x = list_of_points_x[0]
+    scat = ax.plot(x, y, 'o')[0]
+    ax.set_xlim([-4.0, 4.0]), 
+    ax.set_xlabel('X', fontsize=24)
+    ax.set_ylabel('Y', fontsize=24)
+
+    def update_plot(i, x, y, scatter):
+        scatter.set_data(x[i], y)
+
+    ani = animation.FuncAnimation(fig, update_plot, len(list_of_points_x), fargs=(list_of_points_x, y, scat))
+    # f = r"c://Users/xx/Desktop/animation.gif" 
+    writervideo = animation.FFMpegWriter(fps=60)
+    ani.save(os.getcwd() + "/fig/" + filename + ".avi", writer=writervideo)
