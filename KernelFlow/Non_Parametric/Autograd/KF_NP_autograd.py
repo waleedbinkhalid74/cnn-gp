@@ -222,7 +222,7 @@ grad_dic = {"rho" : grad_rho, "mmd": grad_mmd}
     
 #%%
                 
-default_parameters = {"LR" : 0.01, "type_epsilon": "relative", 
+default_parameters = {"LR" : 0.1, "type_epsilon": "relative", 
                       "adjust_type" : False, "rate": 0.0, "LR_threshold" :[],
                       "reg" : default_lambda, "loss": "rho", "sampling": "default"}
 

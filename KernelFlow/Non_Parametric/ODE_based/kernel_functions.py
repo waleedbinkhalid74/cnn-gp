@@ -6,7 +6,8 @@ Created on Wed Jul 22 14:32:37 2020
 """
 
 
-import numpy as np
+# import numpy as np
+import autograd.numpy as np
 from .matrix_operations import norm_matrix
 from .matrix_operations import inner_matrix
 
