@@ -1,6 +1,5 @@
 
 import numpy as np
-import math
 from tqdm import tqdm
 from scipy import integrate
 import torch
@@ -56,6 +55,8 @@ class KernelFlowsNP_ODE():
             print ("Rho outside allowed bounds", rho.item())
         g_interpolate, coeff = kernel_regression(X_batch, X, g, self.parameters, self.kernel_keyword, regu_lambda = self.regularization_lambda)
         perturbation = np.zeros(X.shape)
+        # perturbation[batch_indices] = g
+        # perturbation[not_batch] = g_interpolate
         perturbation = g_interpolate
         self.perturbation.append(np.copy(perturbation))
 
@@ -128,8 +129,8 @@ class KernelFlowsNP_ODE():
 
             self.sample_indices.append(np.copy(sample_indices))
             # The indices of all the elements not in the batch
-            not_batch = np.setdiff1d(data_set_ind, batch_indices)
-            solution = integrate.solve_ivp(self.G, [0, 1.0],  X.ravel(), args=(Y, batch_indices, sample_indices, not_batch), method='RK45')#, max_step=0.01) # Also tried Radau
+            # not_batch = np.setdiff1d(data_set_ind, batch_indices)
+            solution = integrate.solve_ivp(self.G, [0, 1.0],  X.ravel(), args=(Y, batch_indices, sample_indices), method='RK45')#, max_step=0.01) # Also tried Radau
             X = solution.y[:,-1]
             X = np.reshape(X, (Y.shape[0], X.shape[0] // Y.shape[0]))
 
