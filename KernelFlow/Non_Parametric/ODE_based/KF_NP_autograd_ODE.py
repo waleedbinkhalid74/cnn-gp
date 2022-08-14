@@ -9,7 +9,13 @@ from .auxilary_functions import *
 
 class KernelFlowsNP_Autograd_ODE():
     
-    def __init__(self, kernel_keyword, parameters, regression_type = "single"):
+    def __init__(self, kernel_keyword, parameters):
+        """Class constructor for ODE based Non parametric kernel regression using the automatic differenciation engine autograd
+
+        Args:
+            kernel_keyword (str): keyword for the choice of kernel
+            parameters (list): parameters that form the kernel.
+        """
         self.kernel_keyword = kernel_keyword
         self.parameters = np.copy(parameters)
         
@@ -62,7 +68,7 @@ class KernelFlowsNP_Autograd_ODE():
         return perturbation.ravel()
 
 
-    def fit(self, X: np.ndarray, Y: np.ndarray, iterations: int, batch_size: int, learning_rate:float = 0.1, type_epsilon: str = "relative", record_hist: bool = True, reg: float = 0.000001) -> np.ndarray:
+    def fit(self, X: np.ndarray, Y: np.ndarray, iterations: int, batch_size: int, reg: float = 0.000001) -> np.ndarray:
         """Fit method to optimize a given kernel using non-parametric kernel flows using an ODE solver step for the updating of the datapoints
 
         Args:
@@ -70,9 +76,6 @@ class KernelFlowsNP_Autograd_ODE():
             Y (np.ndarray): Training dataset targets
             iterations (int): Number of iterations to execute 
             batch_size (int): Batch size in each iteration to be choosen randomly without replacement
-            learning_rate (float, optional): Not used in this method To be deleted. Defaults to 0.1.
-            type_epsilon (str, optional): Not used in this method to be deleted. Defaults to "relative".
-            record_hist (bool, optional): Not used in this method to be deleted. Defaults to True.
             reg (float, optional): Regularization. Defaults to 0.000001.
 
         Returns:
@@ -112,9 +115,6 @@ class KernelFlowsNP_Autograd_ODE():
             # Update the history            
             self.points_hist.append(np.copy(X))
             
-        # self.points_hist = np.array(self.points_hist)
-        # self.batch_hist = np.array(self.batch_hist)
-        
         return X
                 
    

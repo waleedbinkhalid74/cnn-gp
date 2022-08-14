@@ -2,8 +2,6 @@
 import numpy as np
 import math
 from tqdm import tqdm
-from .kernel_functions import kernels_dic
-from .nabla_functions import nabla_dic
 from scipy import integrate
 import torch
 from .auxilary_functions import *
@@ -11,7 +9,13 @@ from .auxilary_functions import *
 
 class KernelFlowsNP_ODE():
     
-    def __init__(self, kernel_keyword, parameters, regression_type = "single"):
+    def __init__(self, kernel_keyword: str, parameters: list):
+        """Class constructor for ODE based Non parametric kernel regression
+
+        Args:
+            kernel_keyword (str): keyword for the choice of kernel
+            parameters (list): parameters that form the kernel.
+        """
         self.kernel_keyword = kernel_keyword
         self.parameters = np.copy(parameters)
         
@@ -26,7 +30,7 @@ class KernelFlowsNP_ODE():
         self.Y_batch = []
         self.sample_indices = []
 
-    def G(self, t: list, X: np.ndarray, Y: np.ndarray, batch_indices: np.ndarray, sample_indices: np.ndarray, not_batch: np.ndarray) -> np.ndarray:
+    def G(self, t: list, X: np.ndarray, Y: np.ndarray, batch_indices: np.ndarray, sample_indices: np.ndarray) -> np.ndarray:
         """A callable function that calculates the perturbation using the Frechet derivative of rho. The function can be used as a callable in the ODE solver provided by python.
 
         Args:
@@ -35,7 +39,6 @@ class KernelFlowsNP_ODE():
             Y (np.ndarray): Y target of dataset
             batch_indices (np.ndarray): Batch indices
             sample_indices (np.ndarray): Sample indices selected from batch randomly without replacement
-            not_batch (np.ndarray): Indices not part of the batch
 
         Returns:
             np.ndarray: Preturbations calculated by frechet derivative for items in batch and by interpolation for items outside of batch
@@ -51,34 +54,42 @@ class KernelFlowsNP_ODE():
         g, rho = frechet(self.parameters, X_batch, Y_batch, sample_indices, kernel_keyword = self.kernel_keyword)#, regu_lambda=self.regularization_lambda)
         if rho >1 or rho <0:
             print ("Rho outside allowed bounds", rho.item())
-        g_interpolate, coeff = kernel_regression(X_batch, X[not_batch], g, self.parameters, self.kernel_keyword, regu_lambda = self.regularization_lambda)
+        g_interpolate, coeff = kernel_regression(X_batch, X, g, self.parameters, self.kernel_keyword, regu_lambda = self.regularization_lambda)
         perturbation = np.zeros(X.shape)
-        perturbation[batch_indices] = g
-        perturbation[not_batch] = g_interpolate
-        # perturbation = np.tanh(perturbation)
+        perturbation = g_interpolate
         self.perturbation.append(np.copy(perturbation))
 
         self.rho_values.append(rho.item())
         return perturbation.ravel()
 
-    def G_flow_transform(self, t, X_test_batch, Y_batch, sample_indices, test_size):
-        X_test = X_test_batch[:test_size]
+    def G_flow_transform(self, t: float, X_test_batch: np.ndarray, Y_batch: np.ndarray, sample_indices: np.ndarray, test_size: int) -> np.ndarray:
+        """A callable function that calculates the perturbation using the Frechet derivative of rho. 
+        The function can be used as a callable in the ODE solver provided by python specifically to transform points for which
+        y targets do not exist.
+
+        Args:
+            t (float): Time
+            X_test_batch (np.ndarray): Combined array of test points and the batch points selected during the training of the kernel flows algorithm
+            Y_batch (np.ndarray): Targets of the batches used during training 
+            sample_indices (np.ndarray): Sample indices choosen for the batch during the training
+            test_size (int): Size of test set
+
+        Returns:
+            np.ndarray: Perturbations based on interpolation from the batch set.
+        """
         X_batch = X_test_batch[test_size:]
-        
+        X_test_batch = np.reshape(X_test_batch, (-1,1))        
         X_batch = np.reshape(X_batch, (Y_batch.shape[0], X_batch.shape[0] // Y_batch.shape[0]))
-        X_test = np.reshape(X_test, (X_test.shape[0], X_test.shape[0] // X_test.shape[0]))
 
         g, rho = frechet(self.parameters, X_batch, Y_batch, sample_indices, kernel_keyword = self.kernel_keyword)        
         if rho >1 or rho <0:
             print ("Rho outside allowed bounds", rho.item())
-        g_interpolated, _ = kernel_regression(X_batch, X_test, g, self.parameters, self.kernel_keyword, regu_lambda = self.regularization_lambda)
-        perturbations = np.zeros(X_test_batch.shape[0])
-        perturbations[:test_size] = g_interpolated.ravel()
-        perturbations[test_size:] = g.ravel()
-        
+        g_interpolated, _ = kernel_regression(X_batch, X_test_batch, g, self.parameters, self.kernel_keyword, regu_lambda = self.regularization_lambda)
+        perturbations = g_interpolated#.ravel()
+
         return perturbations.ravel()
     
-    def fit(self, X: np.ndarray, Y: np.ndarray, iterations: int, batch_size: int, learning_rate:float = 0.1, type_epsilon: str = "relative", record_hist: bool = True, reg: float = 0.000001) -> np.ndarray:
+    def fit(self, X: np.ndarray, Y: np.ndarray, iterations: int, batch_size: int, reg: float = 0.000001) -> np.ndarray:
         """Fit method to optimize a given kernel using non-parametric kernel flows using an ODE solver step for the updating of the datapoints
 
         Args:
@@ -86,9 +97,6 @@ class KernelFlowsNP_ODE():
             Y (np.ndarray): Training dataset targets
             iterations (int): Number of iterations to execute 
             batch_size (int): Batch size in each iteration to be choosen randomly without replacement
-            learning_rate (float, optional): Not used in this method To be deleted. Defaults to 0.1.
-            type_epsilon (str, optional): Not used in this method to be deleted. Defaults to "relative".
-            record_hist (bool, optional): Not used in this method to be deleted. Defaults to True.
             reg (float, optional): Regularization. Defaults to 0.000001.
 
         Returns:
@@ -121,19 +129,24 @@ class KernelFlowsNP_ODE():
             self.sample_indices.append(np.copy(sample_indices))
             # The indices of all the elements not in the batch
             not_batch = np.setdiff1d(data_set_ind, batch_indices)
-            solution = integrate.solve_ivp(self.G, [0, 1.0],  X.ravel(), args=(Y, batch_indices, sample_indices, not_batch), method='RK45', rtol=1e-8, atol=1e-8)#, max_step=0.01) # Also tried Radau
+            solution = integrate.solve_ivp(self.G, [0, 1.0],  X.ravel(), args=(Y, batch_indices, sample_indices, not_batch), method='RK45')#, max_step=0.01) # Also tried Radau
             X = solution.y[:,-1]
             X = np.reshape(X, (Y.shape[0], X.shape[0] // Y.shape[0]))
 
             # Update the history            
             self.points_hist.append(np.copy(X))
-            
-        # self.points_hist = np.array(self.points_hist)
-        # self.batch_hist = np.array(self.batch_hist)
         
         return X
                 
-    def flow_transform(self, X_test):
+    def flow_transform(self, X_test: np.ndarray) -> np.ndarray:
+        """Transforms the test set based on the the training batches.
+
+        Args:
+            X_test (np.ndarray): Points to be perturbed
+
+        Returns:
+            np.ndarray: Perturbed test points
+        """
 
         if isinstance(X_test, torch.Tensor):
             X_test = X_test.numpy()
@@ -146,39 +159,30 @@ class KernelFlowsNP_ODE():
             solution = integrate.solve_ivp(self.G_flow_transform, [0, 1.0],  X_test_batch.ravel(), args=(self.Y_batch[i], self.sample_indices[i], test_size), method='RK45')
             X_test_batch = solution.y[:,-1]
             
-        return X_test_batch[:test_size]#, X_test_batch[test_size:]
+        return X_test_batch[:test_size].reshape(-1,1)#, X_test_batch[test_size:]
 
-    # def flow_transform(self, X_test):
+    def predict(self, X_test: np.ndarray) -> np.ndarray:
+        """Predict the test points based on kernel ridge regression with non-parametric ODE based kernel flows
+        to improve the kernel 
 
-    #     if isinstance(X_test, torch.Tensor):
-    #         X_test = X_test.numpy()
-    #         X_test = np.copy(X_test)
+        Args:
+            X_test (np.ndarray): Test points to predict
 
-    #     test_size = X_test.shape[0]
-    #     X_test_train = np.concatenate((X_test, self.points_hist[0]))
-        
-    #     data_set_ind = np.arange(X_test_train.shape[0])
-    #     for i in tqdm(range(self.iteration)):
-    #         sample_indices, batch_indices = batch_creation(X_test_train, self.batch_size)
-    #         not_batch = np.setdiff1d(data_set_ind, batch_indices)
-    #         solution = integrate.solve_ivp(self.G, [0, 1.0],  X_test_train.ravel(), args=(Y_test_train, batch_indices, sample_indices, not_batch), method='RK45')
-    #         X_test_train = solution.y[:,-1]
-            
-    #     return X_test_train[:test_size]
-
-    def predict(self, X_test):
+        Returns:
+            np.ndarray: Predicted targets of test points.
+        """
         # Transforming using the flow
-        test_transformed = self.flow_transform(X_test,)  
+        test_transformed = self.flow_transform(X_test)  
         # Fetching the train set transformed
         X_train = self.points_hist[-1]
         Y_train = self.Y_train
         prediction, _ = kernel_regression(X_train, test_transformed, Y_train, self.parameters, self.kernel_keyword, regu_lambda = self.regularization_lambda) 
         return prediction
     
-    def predict_train(self, regu = default_lambda):
+    def predict_train(self):
         X_train = self.X
         Y_train = self.Y_train
-        prediction, coeff = kernel_regression(X_train, X_train, Y_train, self.parameters, self.kernel_keyword, regu_lambda = regu) 
+        prediction, coeff = kernel_regression(X_train, X_train, Y_train, self.parameters, self.kernel_keyword, regu_lambda = self.regularization_lambda) 
 
         return prediction
 
