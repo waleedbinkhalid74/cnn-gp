@@ -49,9 +49,10 @@ def get_raw_kernel_regression_result(kernel_parameter: float, train_x: np.ndarra
     K_xx_Y = np.linalg.lstsq(K_xx, train_y, rcond=1e-8)[0]
     test_pred = np.matmul(T_xx, K_xx_Y)
     fig, ax = plt.subplots(1,1)
-    ax.plot(test_x, test_y, '-', label='Function to fit')
-    ax.plot(test_x, test_pred, '--', label='Prediction from Kernel Regression')
+    ax.scatter(test_x, test_y, label='Function to fit')
+    ax.scatter(test_x, test_pred, label='Prediction from Kernel Ridge Regression')
     plt.legend()
+    plt.savefig("kernel_regression_result.png")
     return mean_squared_error(test_y, test_pred)
 
 def get_np_kernel_flows_results(kernel_parameter: float, train_x, train_y, test_x, test_y, batch_size, iterations):
@@ -63,20 +64,25 @@ def get_np_kernel_flows_results(kernel_parameter: float, train_x, train_y, test_
     X_train_perturbed = KF_rbf.fit(train_x, train_y, iterations, batch_size = batch_size)
 
     fig, ax = plt.subplots(1,2, figsize=(15,5))
-    ax[1].plot(X_train_perturbed.reshape(-1,1), train_y, '-')
-    ax[1].plot(train_x, train_y, '--')
+    ax[1].scatter(X_train_perturbed.reshape(-1,1), train_y)
+    ax[1].scatter(train_x, train_y)
     ax[1].set_xlabel("x")
     ax[1].set_ylabel("f(x)")
 
-    ax[0].plot(X_train_perturbed.reshape(-1,1), train_x, '--')
-    ax[0].plot(train_x, train_x)
+    ax[0].scatter(X_train_perturbed.reshape(-1,1), train_x)
+    ax[0].scatter(train_x, train_x)
     ax[0].set_xlabel('X original')
     ax[0].set_ylabel('X perturbed')
+    plt.legend()
+    plt.savefig("perturbations_from_nonparam_ode_kernel_flows.png")
 
     fig, ax = plt.subplots(1,1)
     test_pred = KF_rbf.predict(test_x)
-    ax.plot(test_x, test_pred, label='Prediction from Non-Parametric Kernel Flows Trained Kernel Regression')
-    ax.plot(test_x, test_y, label='Function to fit')
+    ax.scatter(test_x, test_pred, label='Prediction from Non-Parametric Kernel Flows Trained Kernel Regression')
+    ax.scatter(test_x, test_y, label='Function to fit')
+    plt.legend()
+    plt.savefig("kernelFlow_kernel_regression_result.png")
+
     return mean_squared_error(test_y, test_pred)
 
 if __name__ == "__main__":
