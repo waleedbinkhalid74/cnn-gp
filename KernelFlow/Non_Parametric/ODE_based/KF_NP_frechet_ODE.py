@@ -17,7 +17,7 @@ class KernelFlowsNP_ODE():
         """
         self.kernel_keyword = kernel_keyword
         self.parameters = np.copy(parameters)
-        
+        self.regularization_lambda = 0.0
         # Lists that keep track of the history of the algorithm
         self.rho_values = []
         self.points_hist = []
@@ -80,7 +80,7 @@ class KernelFlowsNP_ODE():
             np.ndarray: Perturbations based on interpolation from the batch set.
         """
         X_batch = X_test_batch[test_size:]
-        X_test_batch = np.reshape(X_test_batch, (-1,1))        
+        X_test_batch = np.reshape(X_test_batch, (X_test_batch.shape[0]//(X_batch.shape[0] // Y_batch.shape[0]), X_batch.shape[0] // Y_batch.shape[0]))        
         X_batch = np.reshape(X_batch, (Y_batch.shape[0], X_batch.shape[0] // Y_batch.shape[0]))
 
         g, rho = frechet(self.parameters, X_batch, Y_batch, sample_indices, kernel_keyword = self.kernel_keyword)        
@@ -154,14 +154,18 @@ class KernelFlowsNP_ODE():
             X_test = X_test.numpy()
             X_test = np.copy(X_test)
 
-        test_size = X_test.shape[0]
+        test_size = 1
+        for test_shape in X_test.shape:
+            test_size*=test_shape    
+        # test_size = X_test.shape[0]
         X_test_batch = np.concatenate((X_test, self.X_batch[0])).ravel()
         for i in tqdm(range(self.iteration)):
             X_test_batch[test_size:] = self.X_batch[i].ravel()
+            # X_test_batch = X_test_batch#.ravel()
             solution = integrate.solve_ivp(self.G_flow_transform, [0, 1.0],  X_test_batch.ravel(), args=(self.Y_batch[i], self.sample_indices[i], test_size), method='RK45')
             X_test_batch = solution.y[:,-1]
-            
-        return X_test_batch[:test_size].reshape(-1,1)#, X_test_batch[test_size:]
+            X_test_batch = X_test_batch#.reshape(-1,1)
+        return X_test_batch[:test_size].reshape(X_test.shape[0], X_test.shape[1])#, X_test_batch[test_size:]
 
     def predict(self, X_test: np.ndarray) -> np.ndarray:
         """Predict the test points based on kernel ridge regression with non-parametric ODE based kernel flows
