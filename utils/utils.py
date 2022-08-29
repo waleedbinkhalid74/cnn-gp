@@ -118,6 +118,7 @@ def get_label_from_probability(prediction_probability: torch.Tensor) -> torch.Te
     return prediction_labels
 
 def animate_flow(list_of_points_x, y, filename= "myanim"):
+
     fig = plt.figure()
     ax =  fig.add_subplot()
 
@@ -134,3 +135,4 @@ def animate_flow(list_of_points_x, y, filename= "myanim"):
     # f = r"c://Users/xx/Desktop/animation.gif" 
     writervideo = animation.FFMpegWriter(fps=60)
     ani.save(os.getcwd() + "/fig/" + filename + ".avi", writer=writervideo)
+

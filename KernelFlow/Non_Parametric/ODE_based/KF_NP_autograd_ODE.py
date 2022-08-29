@@ -54,13 +54,15 @@ class KernelFlowsNP_Autograd_ODE():
 
         rho, g = grad_rho(self.parameters, X_batch, Y_batch, 
                     sample_indices, self.kernel_keyword, reg = self.regularization_lambda)
-        g = -g
+        # g = -g
         if rho >1 or rho <0:
             print ("Rho outside allowed bounds", rho.item())
-        g_interpolate, coeff = kernel_regression(X_batch, X[not_batch], g, self.parameters, self.kernel_keyword, regu_lambda = self.regularization_lambda)
+        # g_interpolate, coeff = kernel_regression(X_batch, X[not_batch], g, self.parameters, self.kernel_keyword, regu_lambda = self.regularization_lambda)
+        g_interpolate, coeff = kernel_regression(X_batch, X, g, self.parameters, self.kernel_keyword, regu_lambda = self.regularization_lambda)
         perturbation = np.zeros(X.shape)
-        perturbation[batch_indices] = g
-        perturbation[not_batch] = g_interpolate
+        # perturbation[batch_indices] = g
+        # perturbation[not_batch] = g_interpolate
+        perturbation = g_interpolate
         # perturbation = np.tanh(perturbation)
         self.perturbation.append(np.copy(perturbation))
 
@@ -108,7 +110,7 @@ class KernelFlowsNP_Autograd_ODE():
             self.sample_indices.append(np.copy(sample_indices))
             # The indices of all the elements not in the batch
             not_batch = np.setdiff1d(data_set_ind, batch_indices)
-            solution = integrate.solve_ivp(self.G, [0, 1.0],  X.ravel(), args=(Y, batch_indices, sample_indices, not_batch), method='RK45', rtol=1e-8, atol=1e-8)#, max_step=0.01) # Also tried Radau
+            solution = integrate.solve_ivp(self.G, [0, 1.0],  X.ravel(), args=(Y, batch_indices, sample_indices, not_batch), method='RK45')#, max_step=0.01) # Also tried Radau
             X = solution.y[:,-1]
             X = np.reshape(X, (Y.shape[0], X.shape[0] // Y.shape[0]))
 

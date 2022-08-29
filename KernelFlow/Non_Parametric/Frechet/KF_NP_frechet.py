@@ -229,9 +229,11 @@ class KernelFlowsNP():
                 perturbation = g
                 coeff = kernel_regression_coeff(X_batch, X[not_batch], g, parameters, self.kernel_keyword, regu_lambda = reg)
             else:
-                g_interpolate, coeff = kernel_regression(X_batch, X[not_batch], g, parameters, self.kernel_keyword, regu_lambda = reg)                
-                perturbation[batch_indices] = g
-                perturbation[not_batch] = g_interpolate
+                g_interpolate, coeff = kernel_regression(X_batch, X, g, parameters, self.kernel_keyword, regu_lambda = reg)                
+                perturbation = g_interpolate.numpy()
+                # g_interpolate, coeff = kernel_regression(X_batch, X[not_batch], g, parameters, self.kernel_keyword, regu_lambda = reg)                
+                # perturbation[batch_indices] = g
+                # perturbation[not_batch] = g_interpolate
 
             #print(perturbation)
             #Find epsilon
