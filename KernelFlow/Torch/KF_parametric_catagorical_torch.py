@@ -10,6 +10,7 @@ import numpy as np
 from utils import tqdm_skopt
 from functools import partial
 from skopt import gp_minimize
+from scipy.optimize import OptimizeResult
 from tqdm import tqdm
 
 ACCEPTED_OPTIMIZERS = ['SGD', 'ADAM']
@@ -169,7 +170,7 @@ class KernelFlowsTorch():
     @staticmethod
     def _block_kernel_eval(X: torch.Tensor, Y: torch.Tensor, blocksize: int,
                            kernel: nn.Module, worker_rank: int=0, n_workers: int=1, device='cpu') -> torch.Tensor:
-        """Evaluates the kernel matrix using a block wise evaluation approach.
+        """Evaluates the kernel matrix using a block wise evaluation approach. The blockwise approach is not useful if gradient tracking is enabled.
         Args:
             X (torch.Tensor): X input of kernel K(X, .)
             Y (torch.Tensor): Y input of kernel K(., Y)
@@ -194,7 +195,7 @@ class KernelFlowsTorch():
                           Y_train: torch.Tensor, kernel: nn.Module, regularization_lambda = 0.0001,
                           blocksize: int = 200, save_kernel: str = False,
                           worker_rank:int = 0, n_workers: int=1, device='cpu') -> np.ndarray:
-        """Applies Kernel regression to provided data
+        """Applies Kernel ridge regression to provided data
 
         Args:
             X_test (torch.Tensor): Test dataset
@@ -319,7 +320,7 @@ class KernelFlowsTorch():
         # Check if the reduction in value of rho is real or due to instability
         # If a new minimum is found, evaluate rho again with a different batch and sample 
         # and see if the value of rho is still less than the lowest value
-        if store_rho:        
+        if store_rho:
             eps = 1e-1
             min_rho = np.min(self.rho_values) if len(self.rho_values) > 0.0 else 0.0
             if rho < min_rho:
@@ -379,6 +380,21 @@ class KernelFlowsTorch():
 
     def _fit_autograd(self, X: torch.Tensor, Y: torch.Tensor, iterations: int, batch_size: int = False,
             sample_proportion: float = 0.5, optimizer: str = 'SGD', adaptive_size: bool = False):
+        """Applies the parametric kernel flows algorithm to optimize a kernel using automatic differenciation with gradient based optimization.
+        Note that this method has limitations with respect to the batch size and in the case of an NNGP the depth of the NN due to the size of the computational graph.
+
+        Args:
+            X (torch.Tensor): Input / Training dataset
+            Y (torch.Tensor): Targets of input dataset
+            iterations (int): Number of iterations to perform the optimization
+            batch_size (int, optional): Size of batch from the entire training dataset. Defaults to False.
+            sample_proportion (float, optional): Proportion of the batch that is used as the sample. Defaults to 0.5.
+            optimizer (str, optional): Gradient based Optimization method to apply. Defaults to 'SGD'.
+            adaptive_size (bool, optional): Flag to vary batchsize during iterations. Defaults to False.
+
+        Raises:
+            RuntimeError: Raises error if rho is out of bounds
+        """
         if optimizer not in ACCEPTED_OPTIMIZERS:
             raise RuntimeError("Optimizer should be a string in [SGD, ADAM]")
         # self.cnn_gp_kernel.train()
@@ -457,10 +473,27 @@ class KernelFlowsTorch():
 
             # Store value of rho
             self.rho_values.append(rho.cpu().detach().numpy())
+            del rho
         return None
 
     def _fit_finite_difference(self, X: torch.Tensor, Y: torch.Tensor, iterations: int, batch_size: int = False,
             sample_proportion: float = 0.5, optimizer: str = 'SGD', adaptive_size: bool = False, dw: float = 1e-4):
+        """Applies the parametric kernel flows algorithm to optimize a kernel using finite differences to estimate the gradient and then uses gradient based optimization on the kernel parameters.
+
+        Args:
+            X (torch.Tensor): Input / Training dataset
+            Y (torch.Tensor): Targets of input dataset
+            iterations (int): Number of iterations to perform the optimization
+            batch_size (int, optional): Size of batch from the entire training dataset. Defaults to False.
+            sample_proportion (float, optional): Proportion of the batch that is used as the sample. Defaults to 0.5.
+            optimizer (str, optional): Gradient based Optimization method to apply. Defaults to 'SGD'.
+            adaptive_size (bool, optional): Flag to change batch size in each iterations. Defaults to False.
+            dw (float, optional): Small pertubation used in forward difference to estimate the gradient. Defaults to 1e-4.
+
+        Raises:
+            RuntimeError: If rho is out of bounds, error is raised
+
+        """
 
         if optimizer not in ACCEPTED_OPTIMIZERS:
             raise RuntimeError("Optimizer should be a string in [SGD, ADAM]")
@@ -526,19 +559,21 @@ class KernelFlowsTorch():
             with torch.no_grad():
                 rho = self.rho(X_batch=X_batch, Y_batch=Y_batch, Y_sample=Y_sample,
                                pi_matrix=pi_matrix)
-            # rho_control = self.rho(X_batch=X_batch, Y_batch=Y_batch, Y_sample=Y_sample, pi_matrix=pi_matrix)
-            # rho_control.backward()
 
             if  rho > 1.01 or rho < -0.1:
                 warnings.warn("Warning, rho outside [0,1]")
                 print(f"""Warning, rho outside [0,1]. rho = {rho}""")
 
             if torch.isnan(rho):
-                raise ValueError("rho is NaN!")
+                # raise ValueError("rho is NaN!")
+                print("Warning, rho is NaN! Reseting model")
+                for i, param in enumerate(self.cnn_gp_kernel.parameters()):
+                    param.data = torch.tensor([np.random.rand()*10.0]).to(self.device)
+                continue
+
 
             # Calculate gradients using finite difference
             for param in self.cnn_gp_kernel.parameters():
-                # rho = self.rho()
                 # We do not wish to track gradients as we approximate them using finite differences
                 with torch.no_grad():
                     old_param = param.data
@@ -560,7 +595,23 @@ class KernelFlowsTorch():
     def _fit_bayesian_optimization(self, X: torch.Tensor, Y: torch.Tensor,
                                    iterations: int , batch_size: int = False,
                                    sample_proportion: float = 0.5,
-                                   parameter_bounds_BO: list= None, random_starts: int = 15):
+                                   parameter_bounds_BO: list= None, random_starts: int = 15) -> OptimizeResult:
+        """Applies the parametric kernel flows algorithm to optimize a kernel using Bayesian Optimization.
+
+        Args:
+            X (torch.Tensor): Input / Training dataset
+            Y (torch.Tensor): Targets of input dataset
+            iterations (int): Number of iterations to perform the optimization
+            batch_size (int, optional): Size of batch from the entire training dataset. Defaults to False.
+            sample_proportion (float, optional): Proportion of the batch that is used as the sample. Defaults to 0.5.
+            parameter_bounds_BO (list, optional): The range in which Bayesian Optimization should search for the parameters. 
+                                                    This can be given as a list of tuples where the length of the list is the number of parameters. 
+                                                    Defaults to None and the range is set automatically to 0 to 100 for each parameter.
+            random_starts (int, optional): Total number of random starting points to calculate without the use of the acquisition function. Defaults to 15.
+
+        Returns:
+            OptimizeResult: Scipy OptimizeResult object containing all information regarding the optimal result acheived
+        """
 
         self.X = X
         self.Y = Y
@@ -602,15 +653,16 @@ class KernelFlowsTorch():
             sample_proportion: float = 0.5, method:str = 'autograd', optimizer: str = 'SGD',
             dw: float = 0.001, adaptive_size: bool = False, parameter_bounds_BO: list = None,
             random_starts: int = 15):
-        """Fits the Kernel with optimial hyperparameters based on the Kernel Flow algorithm
+        """Fits the Kernel with optimial hyperparameters based on the Kernel Flow algorithm using the optimization method selected by the user
+
         Args:
             X (torch.Tensor): Training dataset values
             Y (torch.Tensor): Training dataset labels
             iterations (int): Number of iterations
             batch_size (int, optional): Batch size N_f. Defaults to False.
             sample_proportion (float, optional): Proportion of the batch against which rho is calculated. Defaults to 0.5.
-            method (str, optional): Differenciation method. Defaults to 'autograd'.
-            optimizer (str, optional): Optimization technique. Defaults to 'SGD'.
+            method (str, optional): Optimization method to use. Currently supports automatic differenciation (autograd), finite difference and bayesian optimization. Defaults to 'autograd'.
+            optimizer (str, optional): Optimization technique used for gradient based optimizations. Defaults to 'SGD'.
             dw (float, optional): Increment perturbation for finite difference. Not needed for autograd. Defaults to 0.001.
             adaptive_size (bool, optional): If sample proportion should change with iterations. Defaults to False.
         Raises:

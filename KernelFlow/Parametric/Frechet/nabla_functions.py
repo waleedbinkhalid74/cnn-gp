@@ -6,7 +6,7 @@ Created on Wed Jul 22 15:07:43 2020
 """
 
 
-from KernelFlow.Frechet.matrix_operations import inner_matrix, norm_matrix
+from KernelFlow.Parametric.Frechet.matrix_operations import inner_matrix, norm_matrix
 # from matrix_operations import
 
 import numpy as np
