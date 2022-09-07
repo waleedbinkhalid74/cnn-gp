@@ -3,6 +3,7 @@ import numpy as np
 from tqdm import tqdm
 from scipy import integrate
 import torch
+from scipy.interpolate import griddata
 from .auxilary_functions import *
 #%%
 
@@ -29,6 +30,7 @@ class KernelFlowsNP_ODE():
         self.X_batch = []
         self.Y_batch = []
         self.sample_indices = []
+        self.batch_indices = []
 
     def G(self, t: list, X: np.ndarray, Y: np.ndarray, batch_indices: np.ndarray, sample_indices: np.ndarray, not_batch) -> np.ndarray:
         """A callable function that calculates the perturbation using the Frechet derivative of rho. The function can be used as a callable in the ODE solver provided by python.
@@ -52,20 +54,29 @@ class KernelFlowsNP_ODE():
         Y_batch = Y[batch_indices]
         
         g, rho = frechet(self.parameters, X_batch, Y_batch, sample_indices, kernel_keyword = self.kernel_keyword)#, regu_lambda=self.regularization_lambda)
+        # print(np.linalg.norm(g))
+        self.g.append(g)
         if rho >1 or rho <0:
             print ("Rho outside allowed bounds", rho.item())
         # g_interpolate, coeff = kernel_regression(X_batch, X[not_batch], g, self.parameters, self.kernel_keyword, regu_lambda = self.regularization_lambda)
-        # g_interpolate, coeff = kernel_regression(X_batch, X, g, self.parameters, self.kernel_keyword, regu_lambda = self.regularization_lambda)
+        g_interpolate, coeff = kernel_regression(X_batch, X, g, self.parameters, self.kernel_keyword, regu_lambda = self.regularization_lambda)
+
         # TODO: Del later
-        g_interpolate, coeff = kernel_regression(X_batch, X, g, [3.0], self.kernel_keyword, regu_lambda = self.regularization_lambda)
-        # g_interpolate = g
-        self.debug_g_diff_norm.append(np.linalg.norm(g_interpolate - g))
+        # g_interpolate, coeff = kernel_regression(X_batch, X, g, [2.0], self.kernel_keyword, regu_lambda = self.regularization_lambda)
+        self.g_large_kernel.append(g_interpolate)
+        
+        # g_interpolate_small_kernel, _ = kernel_regression(X_batch, X, g, [0.5], self.kernel_keyword, regu_lambda = self.regularization_lambda)
+        # self.g_small_kernel.append(g_interpolate_small_kernel)
+
+        A = np.vstack([X_batch.T, np.ones(len(X_batch))]).T
+        m_1 = np.linalg.lstsq(A, g, rcond=1e-8)[0]
+        g_linear = np.matmul(np.vstack([X.T, np.ones(len(X))]).T, m_1)
+        self.g_linear.append(g_linear)
         # TODO: Del later
         # perturbation = np.zeros(X.shape)
         # perturbation[batch_indices] = g
         # perturbation[not_batch] = g_interpolate
-        perturbation = g_interpolate
-        # perturbation = np.tanh(perturbation)
+        perturbation = g_interpolate#g_interpolate_small_kernel
         self.perturbation.append(np.copy(perturbation))
 
         self.rho_values.append(rho.item())
@@ -91,15 +102,19 @@ class KernelFlowsNP_ODE():
         X_batch = np.reshape(X_batch, (Y_batch.shape[0], X_batch.shape[0] // Y_batch.shape[0]))
 
         g, rho = frechet(self.parameters, X_batch, Y_batch, sample_indices, kernel_keyword = self.kernel_keyword)  
-        # g = -g      
         if rho >1 or rho <0:
             print ("Rho outside allowed bounds", rho.item())
+        g_interpolate, _ = kernel_regression(X_batch, X_test_batch, g, self.parameters, self.kernel_keyword, regu_lambda = self.regularization_lambda)
         # TODO: Del later
-        g_interpolated, _ = kernel_regression(X_batch, X_test_batch, g, [3.0], self.kernel_keyword, regu_lambda = self.regularization_lambda)
+        # g_interpolate, _ = kernel_regression(X_batch, X_test_batch, g, [4.0], self.kernel_keyword, regu_lambda = self.regularization_lambda)
+
+        A = np.vstack([X_batch.T, np.ones(len(X_batch))]).T
+        m_1 = np.linalg.lstsq(A, g, rcond=1e-8)[0]
+        g_linear = np.matmul(np.vstack([X_test_batch.T, np.ones(len(X_test_batch))]).T, m_1)
+        self.g_linear.append(g_linear)
         # TODO: Del later
 
-        # g_interpolated, _ = kernel_regression(X_batch, X_test_batch, g, self.parameters, self.kernel_keyword, regu_lambda = self.regularization_lambda)
-        perturbations = g_interpolated#.ravel()
+        perturbations = g_linear#.ravel()
 
         return perturbations.ravel()
     
@@ -129,6 +144,12 @@ class KernelFlowsNP_ODE():
         self.points_hist.append(np.copy(X))
         self.regularization_lambda = reg
         self.debug_g_diff_norm = []
+        self.g = []
+        self.g_small_kernel = []
+        self.g_large_kernel = []
+        
+        self.g_linear = []
+        self.g_linear_2 = []
         if batch_size == False:
             self.regression = False
         
@@ -140,6 +161,7 @@ class KernelFlowsNP_ODE():
             self.Y_batch.append(np.copy(Y[batch_indices]))
             self.batch_hist.append(np.copy(batch_indices))
             self.sample_indices.append(np.copy(sample_indices))
+            self.batch_indices.append(np.copy(batch_indices))
             # The indices of all the elements not in the batch
             not_batch = np.setdiff1d(data_set_ind, batch_indices)
             solution = integrate.solve_ivp(self.G, [0, 1.0],  X.ravel(), args=(Y, batch_indices, sample_indices, not_batch), method='RK45')#, max_step=0.01) # Also tried Radau
@@ -147,9 +169,6 @@ class KernelFlowsNP_ODE():
             self.rho_values[-solution.nfev:]
             self.rho.append(np.sum(self.rho_values[-solution.nfev:]) / solution.nfev)
             X = np.reshape(X, (Y.shape[0], X.shape[0] // Y.shape[0]))
-            if np.sum(self.rho_values[-solution.nfev:]) / solution.nfev > 0.3:
-                _ = 2+2
-                pass
 
             # Update the history            
             self.points_hist.append(np.copy(X))
@@ -183,7 +202,7 @@ class KernelFlowsNP_ODE():
             X_test_batch = X_test_batch#.reshape(-1,1)
         return X_test_batch[:test_size].reshape(X_test.shape[0], X_test.shape[1])#, X_test_batch[test_size:]
 
-    def predict(self, X_test: np.ndarray, regu_lambda: float = 1e-8) -> np.ndarray:
+    def predict(self, X_test: np.ndarray, regu_lambda: float = 1e-4) -> np.ndarray:
         """Predict the test points based on kernel ridge regression with non-parametric ODE based kernel flows
         to improve the kernel 
 

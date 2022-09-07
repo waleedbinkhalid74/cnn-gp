@@ -19,7 +19,6 @@ def pi_matrix(sample_indices, dimension):
 def rho(parameters, matrix_data, Y_data, sample_indices,  kernel_keyword= "RBF", regularization=1e-5):
     kernel = kernels_dic[kernel_keyword]    
     kernel_matrix = kernel(matrix_data, matrix_data, parameters)
-    
     pi = pi_matrix(sample_indices, (sample_indices.shape[0], matrix_data.shape[0]))   
     
     sample_matrix = np.matmul(pi, np.matmul(kernel_matrix, np.transpose(pi)))
@@ -40,7 +39,7 @@ def rho(parameters, matrix_data, Y_data, sample_indices,  kernel_keyword= "RBF",
     return 1 - top/bottom
 
 # Computes the frechet derivative for KF (equation 6.5 of the original paper)
-def frechet(parameters, X, Y, sample_indices, kernel_keyword = "RBF", regu_lambda = default_lambda):
+def frechet(parameters, X, Y, sample_indices, kernel_keyword = "RBF", regu_lambda = 1e-5):
     Y_sample = Y[sample_indices]
 
     pi = pi_matrix(sample_indices, (sample_indices.shape[0], X.shape[0])) 
@@ -49,7 +48,7 @@ def frechet(parameters, X, Y, sample_indices, kernel_keyword = "RBF", regu_lambd
     nabla = nabla_dic[kernel_keyword]
     # Computing the nabla matrix and the regular matrix
     derivative_matrix, batch_matrix = nabla(X, parameters)
-    
+
     # Computing the Kernel matrix Inverses
     sample_matrix = np.matmul(pi, np.matmul(batch_matrix, np.transpose(pi)))
     sample_inv = np.linalg.inv(sample_matrix + lambda_term * np.identity(sample_matrix.shape[0]))
@@ -178,7 +177,7 @@ def compute_LR(rate, old_points, g_pert, type_epsilon = "relative"):
 #%%
 
 # For Autograd Implementation
-def grad_rho(parameters, X_data, Y_data, sample_indices, kernel_keyword= "RBF", reg = 0.000001):
+def grad_rho(parameters, X_data, Y_data, sample_indices, kernel_keyword= "RBF", reg = 1e-5):
     grad_K = value_and_grad(rho, 1)
     rho_value, gradient = grad_K(parameters, X_data, Y_data, sample_indices, kernel_keyword, regularization = reg)
     return rho_value, gradient

@@ -60,9 +60,13 @@ class KernelFlowsNP_Autograd_ODE():
         # g_interpolate, coeff = kernel_regression(X_batch, X[not_batch], g, self.parameters, self.kernel_keyword, regu_lambda = self.regularization_lambda)
         g_interpolate, coeff = kernel_regression(X_batch, X, g, self.parameters, self.kernel_keyword, regu_lambda = self.regularization_lambda)
         perturbation = np.zeros(X.shape)
-        # perturbation[batch_indices] = g
-        # perturbation[not_batch] = g_interpolate
-        perturbation = g_interpolate
+
+        A = np.vstack([X_batch.T, np.ones(len(X_batch))]).T
+        m_1 = np.linalg.lstsq(A, g, rcond=1e-8)[0]
+        g_linear = np.matmul(np.vstack([X.T, np.ones(len(X))]).T, m_1)
+        # self.g_linear.append(g_linear)
+
+        perturbation = g_linear#g_interpolate
         # perturbation = np.tanh(perturbation)
         self.perturbation.append(np.copy(perturbation))
 

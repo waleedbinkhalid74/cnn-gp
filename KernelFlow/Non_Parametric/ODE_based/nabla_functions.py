@@ -31,7 +31,8 @@ a specific point, the derivative wrt to every other point.
 # Nabla of the RBF kernel    
 def nabla_RBF(X,  parameters):
     # Computing the Kernel matrix
-    matrix_norm = norm_matrix(X, X)
+    matrix_norm = norm_matrix(X, X) 
+    # matrix_norm = np.linalg.norm(pairwise_diff(X), axis=1)**2
     sigma = parameters[0]
     batch_matrix =  np.exp(-matrix_norm /(2 *sigma**2))
      
