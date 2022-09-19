@@ -135,7 +135,7 @@ def main(_):
     ax.semilogy(N_i_arr, normed_diff_matmul_gpu, '*-',label='CPU 64 bit precision vs GPU 32 bit precision')
     ax.semilogy(N_i_arr, normed_diff_matmul_gpu64, '^-', label='CPU 64 bit precision vs GPU 64 bit precision')
     ax.set_xlabel("Number of datapoints used for Kernel Regression: $N_I$")
-    ax.set_ylabel("$||CPU64(K_{xx^\prime}(K_{xx}^{-1}Y)_{CPU64}) - Other(K_{xx^\prime}(K_{xx}^{-1}Y)_{CPU64})||_2$")
+    ax.set_ylabel("$||CPU64(K_{xx^\prime}(K_{xx}^{-1}Y)_{CPU64}) - Other(K_{xx^\prime}(K_{xx}^{-1}Y)_{CPU64})||_F$")
     plt.legend(prop={'size': 6})
     fig.savefig('./figs/cpu_vs_gpu_kernel_regression_diff_norm.png')
     plt.show()
